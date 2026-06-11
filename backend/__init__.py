@@ -1,0 +1,2 @@
+"""NorthwindAI backend package."""
+

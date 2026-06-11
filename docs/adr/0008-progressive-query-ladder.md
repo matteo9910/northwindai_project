@@ -1,0 +1,5 @@
+# Build toward the Golden Query with a progressive query ladder
+
+The first GraphRAG milestone will be validated through a progressive query ladder rather than attempting the Golden Query immediately. Each query tests one architectural layer at a time: SQL on PostgreSQL, simple Neo4j traversal, Neo4j traversal with Event Nodes, Neo4j-to-Qdrant document retrieval, and finally the full Golden Query combining SQL, graph traversal, vector search, routing, and answer tracing.
+
+**Consequences**: The Golden Query remains the target demo, but development can be tested incrementally with independent, explainable checkpoints. Each ladder step will store the effective answer trace, including selected route, generated SQL or Cypher, graph paths, retrieved chunks, and tools used, so failures can be diagnosed by comparing the actual reasoning path against the expected answer spec. This makes failures easier to localize and ensures each layer proves its value before being composed into the complete GraphRAG workflow.
