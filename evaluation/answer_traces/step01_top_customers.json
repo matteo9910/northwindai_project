@@ -1,0 +1,56 @@
+{
+  "route": "sql_only",
+  "generated_sql": "SELECT o.customer_id, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON od.order_id = o.order_id WHERE o.order_date >= CAST('2025-01-01' AS DATE) AND o.order_date <= CAST('2025-12-31' AS DATE) GROUP BY o.customer_id ORDER BY net_revenue DESC LIMIT 10",
+  "generated_cypher": null,
+  "graph_paths": [],
+  "retrieved_chunks": [],
+  "documents_used": [],
+  "metrics": {
+    "postgresql": {
+      "row_count": 10,
+      "duration_ms": 33.12
+    }
+  },
+  "validation_results": [
+    {
+      "allowed": true,
+      "statement_type": "SELECT",
+      "referenced_schemas": [
+        "erp_core"
+      ],
+      "referenced_tables": [
+        "erp_core.order_details",
+        "erp_core.orders"
+      ],
+      "violations": [],
+      "effective_sql": "SELECT o.customer_id, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON od.order_id = o.order_id WHERE o.order_date >= CAST('2025-01-01' AS DATE) AND o.order_date <= CAST('2025-12-31' AS DATE) GROUP BY o.customer_id ORDER BY net_revenue DESC LIMIT 10"
+    }
+  ],
+  "provenance": [
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core",
+      "source_table": "orders",
+      "source_columns": [
+        "customer_id",
+        "order_date",
+        "order_id"
+      ],
+      "rule_name": "top_customers",
+      "rule_version": "v1"
+    },
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core",
+      "source_table": "order_details",
+      "source_columns": [
+        "unit_price",
+        "quantity",
+        "discount",
+        "order_id"
+      ],
+      "rule_name": "top_customers",
+      "rule_version": "v1"
+    }
+  ]
+}

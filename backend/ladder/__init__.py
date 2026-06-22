@@ -1,0 +1,2 @@
+"""Progressive query ladder steps."""
+

@@ -1,0 +1,23 @@
+{
+  "step": "step01_top_customers",
+  "question": "Who are the top 10 customers by net revenue in the last 12 months?",
+  "route": "sql_only",
+  "analysis_window": {
+    "start": "2025-01-01",
+    "end": "2025-12-31"
+  },
+  "expected_behavior": {
+    "row_count": 10,
+    "ordered_by": "net_revenue_desc",
+    "net_revenue_positive": true,
+    "validation_allowed": true,
+    "schemas": ["erp_core"],
+    "tables": ["erp_core.orders", "erp_core.order_details"]
+  },
+  "rule": {
+    "name": "top_customers",
+    "version": "v1",
+    "net_revenue_formula": "sum(order_details.unit_price * quantity * (1 - discount))"
+  }
+}
+
