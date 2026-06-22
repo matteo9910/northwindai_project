@@ -44,6 +44,14 @@ isolation** before composing it with SQL and vector routes. The LangGraph router
 and LLM-generated Cypher are **later phases** — here the route is fixed to
 `graph_only` and the Cypher is built deterministically.
 
+**Issue coverage:** this phase deliberately combines `docs/ISSUES.md` **Issue 4**
+(Neo4j supplier-to-product traversal ladder step) with the **Cypher side** of
+**Issue 5** (read-only Cypher guardrails). Phase 04 already delivered the SQL
+side of Issue 5. Keeping the Cypher guardrails in this phase ensures Step 2 uses
+the same governed validation -> execution -> `answer_trace` path that later
+LLM-generated Cypher must use, instead of introducing an ungoverned graph
+execution shortcut.
+
 ---
 
 ## Prerequisites
@@ -85,6 +93,15 @@ from earlier phases.
    entity later is *adding a projector function*, not rewriting the engine. There
    is no separate "massive projection" event — the graph grows with the ladder.
 
+   For Phase 05, each node carries only the business properties needed by Step 2
+   plus identity and Graph Provenance. This is a ladder-scope constraint, not the
+   final production shape: a later dedicated graph-enrichment phase should expand
+   the ERP Domain Graph toward **Full Graph Projection**: projecting all relevant
+   instance-level entities, explicit foreign-key relationships, and business
+   properties from the Operational Source of Truth into Neo4j. Use **business
+   properties**, not "features", for instance attributes in graph documentation to
+   avoid confusion with ML feature engineering.
+
 3. **Explicit relationships only, from foreign keys.** `SUPPLIES` is an **Explicit
    Graph Relationship** copied directly from the trusted FK
    `products.supplier_id`. **No derived relationships, no inference, no LLM
@@ -93,24 +110,39 @@ from earlier phases.
 
 4. **Graph Provenance is mandatory on every node and relationship** (ADR 0005).
    Direct projections record at least: `source_system`, `source_schema`,
-   `source_table`, `source_pk`, `projection_version`. The `SUPPLIES` relationship
-   records the source table/column it was derived from and the projection
-   rule/version. No node or relationship may be created without provenance.
+   `source_table`, `source_pk`, `projection_version`, `rule_name`, and
+   `rule_version`. Use `supplier_projection` / `v1` for `Supplier`,
+   `product_projection` / `v1` for `Product`, and
+   `supplier_to_product_projection` / `v1` for `SUPPLIES`. The `SUPPLIES`
+   relationship also records the source table/column it was derived from. No node
+   or relationship may be created without provenance.
+   `projection_version` is the version of the Neo4j projection contract
+   (labels, relationship types, property mapping, and required provenance shape).
+   `rule_version` is the version of the specific projection or derivation rule
+   named by `rule_name`. In Phase 05 both are `v1`, but they are intentionally
+   distinct.
+   For `SUPPLIES`, `source_pk` is the `product_id` of the `erp_core.products`
+   row that contains the `supplier_id` foreign key, and `source_column` is
+   `supplier_id`.
 
 5. **Idempotent projection.** Use `MERGE` (not `CREATE`) keyed on the natural
    instance id (`supplier_id`, `product_id`) so re-running the projection updates
    in place and never duplicates. The projection is the **only** code allowed to
    write to Neo4j; everything else is read-only.
 
-6. **Cypher guardrails via engine parser + code allowlist + server read-mode.**
+6. **Cypher guardrails via code allowlist + engine parser + server read-mode.**
    There is no mature `sqlglot` equivalent for Cypher in Python. Enforce read-only
    with **defense in depth**: (a) a code-level keyword/structure check
-   (block `CREATE/MERGE/DELETE/SET/REMOVE/DETACH/CALL{...}` writes; label and
+   (block `CREATE/MERGE/DELETE/SET/REMOVE/DETACH` and all `CALL` usage in Phase
+   05; label and
    relationship allowlist; path-depth and row caps), (b) `EXPLAIN <cypher>` so
    Neo4j's **own parser/planner** validates the query without executing it, and
    (c) run the actual query in a **READ access-mode** transaction so the **server**
    physically refuses writes. Do **not** add a third-party Cypher parser dependency
-   in this phase.
+   in this phase. `validate_cypher()` is an offline/static validator and must not
+   require a live Neo4j connection; `run_validated_cypher()` performs the
+   mandatory `EXPLAIN` immediately before execution and fails closed if Neo4j
+   rejects the query.
 
 7. **Reuse the `ValidationResult` contract.** The Cypher validator returns the same
    `backend.query.validator.ValidationResult` model used for SQL (with
@@ -181,16 +213,25 @@ After this phase the system MUST:
   `product_name`, …) and provenance on create/update.
 - **Relationship:** `MATCH` the two endpoints by id, then
   `MERGE (s)-[r:SUPPLIES]->(p)` and set provenance on `r`.
+- Keep `supplier_id` on `Product` as a source/debug business property in Phase 05,
+  while treating `(:Supplier)-[:SUPPLIES]->(:Product)` as the authoritative graph
+  traversal. The Supplier->Product ladder answer must not be implemented by
+  filtering on `Product.supplier_id`.
 - **Provenance properties** (ADR 0005) on every node and relationship:
   `source_system = "postgresql"`, `source_schema = "erp_core"`,
-  `source_table` (`"suppliers"` / `"products"`), `source_pk` (the id), and
-  `projection_version` (e.g. `"v1"`). The `SUPPLIES` relationship additionally
-  records that it derives from `products.supplier_id` and the
-  `rule_name`/`rule_version` (`"supplier_to_product_projection"` / `"v1"`).
+  `source_table` (`"suppliers"` / `"products"`), `source_pk` (the id),
+  `projection_version` (e.g. `"v1"`), `rule_name`, and `rule_version`. Use
+  `supplier_projection` / `v1` for `Supplier`, `product_projection` / `v1` for
+  `Product`, and `supplier_to_product_projection` / `v1` for `SUPPLIES`. The
+  `SUPPLIES` relationship additionally records that it derives from
+  `products.supplier_id`, with `source_pk = product_id` and
+  `source_column = "supplier_id"`.
 - Idempotent: `MERGE` keyed on the id; re-running must not duplicate.
 - Exposed as a CLI: `python -m backend.graph.projection` (optionally
-  `--reset` to clear the projected labels first, guarded so it only deletes
-  allowlisted labels).
+  `--reset` to clear the Phase 05 projection first, guarded so it only deletes
+  allowlisted graph elements: `(:Supplier)-[:SUPPLIES]->(:Product)`,
+  `(:Supplier)`, and `(:Product)`. Do not implement a global
+  `MATCH (n) DETACH DELETE n` reset.
 
 ### Cypher validator (ADR 0009 — Cypher side)
 - `backend/graph/cypher_validator.py`. Reuse
@@ -211,6 +252,15 @@ After this phase the system MUST:
   `referenced_schemas` = node labels, `referenced_tables` = relationship types,
   `statement_type` = `"READ"`.
 
+Clarification: despite the wording above, Phase 05 keeps `validate_cypher()`
+offline/static. `EXPLAIN` belongs to `run_validated_cypher()` and is mandatory
+immediately before live execution. Validator unit tests must not require Neo4j;
+executor/integration tests cover Neo4j parse/planning failures and must surface
+them as controlled failures.
+
+Phase 05 also blocks all `CALL` usage, including read-only-looking procedures.
+Procedure allowlisting is deferred until a later phase has a concrete need for it.
+
 ### Cypher executor (read-only path)
 - `backend/graph/cypher_executor.py`. One driver session per call. Per call:
   - Refuse to run when `validation_result.allowed` is `False` or `effective_sql`
@@ -221,18 +271,34 @@ After this phase the system MUST:
     transaction physically cannot mutate the graph.
   - Run `EXPLAIN` first (Layer 2), then execute the query.
   - Return records + `metrics` (`QueryMetrics(row_count, duration_ms)`) + the
-    `graph_paths` (a serializable list of dicts describing the traversed
-    nodes/relationships, e.g. `{"supplier": {...}, "product": {...}}`).
+    `graph_paths` (a serializable list of dicts describing the concrete traversed
+    supplier node, `SUPPLIES` relationship, and product node). Each path entry
+    must include business identity/display fields plus essential Graph Provenance
+    for the supplier node, relationship, and product node, so each answer row is
+    auditable back to the exact graph elements used.
 - Define a small `GraphExecutionResult` (Pydantic) analogous to
   `QueryExecutionResult`: `records: list[dict]`, `graph_paths: list[dict]`,
   `metrics: QueryMetrics`.
+- Define a small application exception, `CypherExecutionError`, for controlled
+  executor failures. If Neo4j rejects `EXPLAIN <effective_cypher>`, raise
+  `CypherExecutionError("explain_failed:<message>")` instead of leaking a raw
+  driver exception. The executor still raises `ValueError` when asked to run a
+  failed or empty `ValidationResult`.
 
 ### Ladder Step 2 (`backend/ladder/supplier_products.py`)
 - Mirror `backend/ladder/top_customers.py` in shape. A deterministic Cypher
   template, parameterized by company name:
   ```cypher
-  MATCH (s:Supplier {company_name: $company_name})-[:SUPPLIES]->(p:Product)
-  RETURN p.product_id AS product_id, p.product_name AS product_name
+  MATCH (s:Supplier {company_name: $company_name})-[r:SUPPLIES]->(p:Product)
+  RETURN
+    s.supplier_id AS supplier_id,
+    s.company_name AS supplier_name,
+    properties(s) AS supplier_properties,
+    type(r) AS relationship_type,
+    properties(r) AS relationship_properties,
+    p.product_id AS product_id,
+    p.product_name AS product_name,
+    properties(p) AS product_properties
   ORDER BY p.product_name
   ```
   Default `$company_name = "Tokyo Traders"`.
@@ -240,11 +306,26 @@ After this phase the system MUST:
   `run_validated_cypher()` → assemble `AnswerTrace`. Note the Cypher is assembled
   from **trusted constants/parameters** (no user input) and still passed through
   the validator — the governed path is identical to the future LLM-generated case.
+- The query must return supplier fields, relationship type/properties, and product
+  fields explicitly so `graph_paths` is built from the actual traversal result,
+  not inferred from product-only rows or fetched through a second query.
 - `answer_trace`: `route = QueryRoute.GRAPH_ONLY`, `generated_cypher` =
   effective Cypher, `metrics = {"neo4j": metrics}`, `validation_results =
   [validation]`, `graph_paths` populated, and `provenance` = entries for the
   `erp_core.suppliers` and `erp_core.products` source tables with
   `rule_name = "supplier_to_product_projection"`, `rule_version = "v1"`.
+- The public `answer` contains only business product rows
+  (`product_id`, `product_name`). Supplier details, relationship metadata,
+  provenance, generated Cypher, validation, and metrics belong in
+  `answer_trace`, not in the top-level answer.
+- `answer_supplier_products()` must not call `project_all()` or perform any graph
+  writes. Projection is an explicit setup/update step (`python -m
+  backend.graph.projection`); the ladder answer path is read-only and assumes the
+  Knowledge Layer has already been projected.
+- If the Cypher validates and executes successfully but returns no rows, the API
+  may return `200` with an empty `answer`. For the Step 2 ladder evaluation,
+  however, an empty Tokyo Traders result is a failure because it does not match
+  the PostgreSQL read-back for `supplier_id = 4`.
 - CLI `--emit-trace` writing
   `evaluation/answer_traces/step02_supplier_products.json` (like Step 1).
 
@@ -255,6 +336,10 @@ After this phase the system MUST:
 - No `main.py` change needed beyond the already-mounted ladder router.
 - Keep ruff clean (`select = ["E","F","I","UP","B"]`); 88-col lines; `snake_case`
   for modules/functions, `PascalCase` for node labels.
+- Update `README.md` with the Phase 05 run path, including starting Neo4j,
+  running the explicit graph projection command, and emitting the Step 2 trace:
+  `docker compose up -d neo4j`, `python -m backend.graph.projection`, and
+  `python -m backend.ladder.supplier_products --emit-trace`.
 
 ### Evaluation artifacts
 - `evaluation/ladder/step02_supplier_products.spec.json` — the **expected answer
@@ -348,6 +433,7 @@ MATCH (p:Product {product_id: $product_id})
 MERGE (s)-[r:SUPPLIES]->(p)
 SET r.source_system = 'postgresql', r.source_schema = 'erp_core',
     r.source_table = 'products', r.source_column = 'supplier_id',
+    r.source_pk = $product_id,
     r.rule_name = 'supplier_to_product_projection',
     r.rule_version = $version, r.projection_version = $version
 """
@@ -462,6 +548,10 @@ This phase is complete when **all** of the following hold:
       fields present but empty.
 - [ ] `GET /ladder/supplier-products` returns `200` with `answer` + `answer_trace`
       (test may skip if Neo4j is unconfigured, like the Phase 03/04 fixtures).
+- [ ] Unit tests for `validate_cypher()` run without Neo4j. Live projection,
+      executor, and ladder tests skip with a clear reason when Neo4j is
+      unconfigured or unreachable, and run normally when the dev stack is
+      available.
 - [ ] The **expected answer spec** for Step 2 is stored under `evaluation/ladder/`
       and encodes behavioral expectations (route, non-empty product set, ordering,
       read-only validation passed, provenance present) — **not** a pinned product

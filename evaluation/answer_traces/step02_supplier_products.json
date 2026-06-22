@@ -1,0 +1,171 @@
+{
+  "route": "graph_only",
+  "generated_sql": null,
+  "generated_cypher": "MATCH (s:Supplier {company_name: $company_name})-[r:SUPPLIES]->(p:Product)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  type(r) AS relationship_type,\n  properties(r) AS relationship_properties,\n  p.product_id AS product_id,\n  p.product_name AS product_name,\n  properties(p) AS product_properties\nORDER BY p.product_name\nLIMIT 1000",
+  "graph_paths": [
+    {
+      "supplier": {
+        "supplier_id": 4,
+        "company_name": "Tokyo Traders",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "suppliers",
+        "source_pk": 4,
+        "projection_version": "v1",
+        "rule_name": "supplier_projection",
+        "rule_version": "v1"
+      },
+      "relationship": {
+        "type": "SUPPLIES",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 10,
+        "projection_version": "v1",
+        "rule_name": "supplier_to_product_projection",
+        "rule_version": "v1",
+        "source_column": "supplier_id"
+      },
+      "product": {
+        "product_id": 10,
+        "product_name": "Ikura",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 10,
+        "projection_version": "v1",
+        "rule_name": "product_projection",
+        "rule_version": "v1"
+      }
+    },
+    {
+      "supplier": {
+        "supplier_id": 4,
+        "company_name": "Tokyo Traders",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "suppliers",
+        "source_pk": 4,
+        "projection_version": "v1",
+        "rule_name": "supplier_projection",
+        "rule_version": "v1"
+      },
+      "relationship": {
+        "type": "SUPPLIES",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 74,
+        "projection_version": "v1",
+        "rule_name": "supplier_to_product_projection",
+        "rule_version": "v1",
+        "source_column": "supplier_id"
+      },
+      "product": {
+        "product_id": 74,
+        "product_name": "Longlife Tofu",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 74,
+        "projection_version": "v1",
+        "rule_name": "product_projection",
+        "rule_version": "v1"
+      }
+    },
+    {
+      "supplier": {
+        "supplier_id": 4,
+        "company_name": "Tokyo Traders",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "suppliers",
+        "source_pk": 4,
+        "projection_version": "v1",
+        "rule_name": "supplier_projection",
+        "rule_version": "v1"
+      },
+      "relationship": {
+        "type": "SUPPLIES",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 9,
+        "projection_version": "v1",
+        "rule_name": "supplier_to_product_projection",
+        "rule_version": "v1",
+        "source_column": "supplier_id"
+      },
+      "product": {
+        "product_id": 9,
+        "product_name": "Mishi Kobe Niku",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "products",
+        "source_pk": 9,
+        "projection_version": "v1",
+        "rule_name": "product_projection",
+        "rule_version": "v1"
+      }
+    }
+  ],
+  "retrieved_chunks": [],
+  "documents_used": [],
+  "metrics": {
+    "neo4j": {
+      "row_count": 3,
+      "duration_ms": 15.54
+    }
+  },
+  "validation_results": [
+    {
+      "allowed": true,
+      "statement_type": "READ",
+      "referenced_schemas": [
+        "Product",
+        "Supplier"
+      ],
+      "referenced_tables": [
+        "SUPPLIES"
+      ],
+      "violations": [],
+      "effective_sql": "MATCH (s:Supplier {company_name: $company_name})-[r:SUPPLIES]->(p:Product)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  type(r) AS relationship_type,\n  properties(r) AS relationship_properties,\n  p.product_id AS product_id,\n  p.product_name AS product_name,\n  properties(p) AS product_properties\nORDER BY p.product_name\nLIMIT 1000"
+    }
+  ],
+  "provenance": [
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core",
+      "source_table": "suppliers",
+      "source_columns": [
+        "supplier_id",
+        "company_name"
+      ],
+      "rule_name": "supplier_projection",
+      "rule_version": "v1"
+    },
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core",
+      "source_table": "products",
+      "source_columns": [
+        "product_id",
+        "product_name",
+        "supplier_id"
+      ],
+      "rule_name": "product_projection",
+      "rule_version": "v1"
+    },
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core",
+      "source_table": "products",
+      "source_columns": [
+        "product_id",
+        "supplier_id"
+      ],
+      "rule_name": "supplier_to_product_projection",
+      "rule_version": "v1"
+    }
+  ]
+}

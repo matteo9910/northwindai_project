@@ -1,0 +1,34 @@
+{
+  "step": "step02_supplier_products",
+  "question": "Which products does Tokyo Traders supply?",
+  "route": "graph_only",
+  "expected_behavior": {
+    "answer_shape": ["product_id", "product_name"],
+    "non_empty_for_tokyo_traders": true,
+    "ordered_by": "product_name_asc",
+    "validation_allowed": true,
+    "node_labels": ["Product", "Supplier"],
+    "relationship_types": ["SUPPLIES"],
+    "graph_paths_populated": true,
+    "graph_paths_include_provenance": true,
+    "matches_postgres_read_back": {
+      "schema": "erp_core",
+      "supplier_id": 4,
+      "table": "products"
+    }
+  },
+  "rules": [
+    {
+      "name": "supplier_projection",
+      "version": "v1"
+    },
+    {
+      "name": "product_projection",
+      "version": "v1"
+    },
+    {
+      "name": "supplier_to_product_projection",
+      "version": "v1"
+    }
+  ]
+}

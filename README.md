@@ -83,6 +83,29 @@ The endpoint returns `status: ok` only when PostgreSQL/Supabase, Neo4j, and
 Qdrant are all reachable. If one service is unavailable, the response is
 `status: degraded` and includes the failing service detail.
 
+## Query Ladder
+
+Run the SQL-only Top Customers ladder step:
+
+```powershell
+python -m backend.ladder.top_customers --emit-trace
+```
+
+Prepare the Phase 05 Neo4j graph projection before running the graph-only
+Supplier -> Product ladder step:
+
+```powershell
+docker compose up -d neo4j
+python -m backend.graph.projection
+python -m backend.ladder.supplier_products --emit-trace
+```
+
+The projection command reads `erp_core.suppliers` and `erp_core.products` from
+PostgreSQL and writes `Supplier`, `Product`, and `SUPPLIES` graph elements into
+Neo4j with Graph Provenance. Use `python -m backend.graph.projection --reset`
+only to clear the Phase 05 projected `Supplier`/`Product`/`SUPPLIES` elements
+before re-projecting them.
+
 ## Tests and Linting
 
 Run smoke tests:
@@ -105,4 +128,3 @@ live Supabase, Neo4j, or Qdrant services.
 This phase does not create `erp_core` or `erp_docs` schemas, import Northwind
 data, build the ERP Domain Graph, create Qdrant collections, add LangGraph, or
 implement AI Agent Query behavior. Those arrive in later issue slices.
-

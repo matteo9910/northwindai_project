@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This repository is **specification-only**. There is no application code, build system, test suite, or `.git` yet. The source of truth for what to build is, in priority order:
+This repository contains a Python backend, database migrations, synthetic data
+tooling, query ladder code, evaluation artifacts, and tests from the completed
+early phases. The source of truth for what to build next is, in priority order:
+
+Use `directives/` together with `docs/ISSUES.md`: directives capture the active
+phase-level implementation decisions that refine the issue slices.
 
 - [Project_Idea.md](Project_Idea.md) — full project specification (domain, architecture, stack, roadmap, milestones).
 - [docs/PRD.md](docs/PRD.md) — problem statement, 48 user stories, implementation/testing decisions, out-of-scope list.
