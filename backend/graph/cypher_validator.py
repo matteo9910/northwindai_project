@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
-from backend.query.validator import DEFAULT_MAX_ROWS, ValidationResult
+from pydantic import BaseModel, Field
+
+from backend.query.validator import DEFAULT_MAX_ROWS
 
 ALLOWED_LABELS = {"Supplier", "Product"}
 ALLOWED_RELATIONSHIP_TYPES = {"SUPPLIES"}
@@ -47,11 +50,25 @@ class CypherPolicy:
     max_depth: int = DEFAULT_MAX_DEPTH
 
 
+class CypherValidationResult(BaseModel):
+    dialect: Literal["cypher"] = "cypher"
+    allowed: bool
+    statement_type: str | None = None
+    referenced_labels: list[str] = Field(default_factory=list)
+    referenced_relationship_types: list[str] = Field(default_factory=list)
+    violations: list[str] = Field(default_factory=list)
+    effective_cypher: str | None = None
+
+    @property
+    def effective_query(self) -> str | None:
+        return self.effective_cypher
+
+
 def validate_cypher(
     cypher: str,
     policy: CypherPolicy | None = None,
     max_rows: int | None = None,
-) -> ValidationResult:
+) -> CypherValidationResult:
     policy = policy or CypherPolicy()
     if max_rows is not None:
         policy = CypherPolicy(
@@ -79,13 +96,13 @@ def validate_cypher(
     if not violations:
         effective_cypher = _cap_cypher(cypher, policy.max_rows)
 
-    return ValidationResult(
+    return CypherValidationResult(
         allowed=not violations,
         statement_type="READ",
-        referenced_schemas=sorted(referenced_labels),
-        referenced_tables=sorted(referenced_relationships),
+        referenced_labels=sorted(referenced_labels),
+        referenced_relationship_types=sorted(referenced_relationships),
         violations=violations,
-        effective_sql=effective_cypher,
+        effective_cypher=effective_cypher,
     )
 
 

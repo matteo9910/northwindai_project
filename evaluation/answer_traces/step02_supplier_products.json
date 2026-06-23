@@ -114,22 +114,23 @@
   "metrics": {
     "neo4j": {
       "row_count": 3,
-      "duration_ms": 15.54
+      "duration_ms": 9.33
     }
   },
   "validation_results": [
     {
+      "dialect": "cypher",
       "allowed": true,
       "statement_type": "READ",
-      "referenced_schemas": [
+      "referenced_labels": [
         "Product",
         "Supplier"
       ],
-      "referenced_tables": [
+      "referenced_relationship_types": [
         "SUPPLIES"
       ],
       "violations": [],
-      "effective_sql": "MATCH (s:Supplier {company_name: $company_name})-[r:SUPPLIES]->(p:Product)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  type(r) AS relationship_type,\n  properties(r) AS relationship_properties,\n  p.product_id AS product_id,\n  p.product_name AS product_name,\n  properties(p) AS product_properties\nORDER BY p.product_name\nLIMIT 1000"
+      "effective_cypher": "MATCH (s:Supplier {company_name: $company_name})-[r:SUPPLIES]->(p:Product)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  type(r) AS relationship_type,\n  properties(r) AS relationship_properties,\n  p.product_id AS product_id,\n  p.product_name AS product_name,\n  properties(p) AS product_properties\nORDER BY p.product_name\nLIMIT 1000"
     }
   ],
   "provenance": [

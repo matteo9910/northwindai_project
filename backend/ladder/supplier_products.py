@@ -8,11 +8,10 @@ from pydantic import BaseModel
 
 from backend.config import Settings, get_settings
 from backend.graph.cypher_executor import GraphExecutionResult, run_validated_cypher
-from backend.graph.cypher_validator import validate_cypher
+from backend.graph.cypher_validator import CypherValidationResult, validate_cypher
 from backend.graph.projection import SUPPLIES_RULE_NAME
 from backend.ladder.constants import SUPPLIER_PRODUCTS_COMPANY
 from backend.query.trace import AnswerTrace, ProvenanceEntry, QueryRoute
-from backend.query.validator import ValidationResult
 
 TRACE_OUTPUT_PATH = Path("evaluation/answer_traces/step02_supplier_products.json")
 
@@ -70,12 +69,12 @@ def answer_supplier_products(
 
 
 def build_answer_trace(
-    validation: ValidationResult,
+    validation: CypherValidationResult,
     execution: GraphExecutionResult,
 ) -> AnswerTrace:
     return AnswerTrace(
         route=QueryRoute.GRAPH_ONLY,
-        generated_cypher=validation.effective_sql,
+        generated_cypher=validation.effective_cypher,
         graph_paths=execution.graph_paths,
         metrics={"neo4j": execution.metrics},
         validation_results=[validation],

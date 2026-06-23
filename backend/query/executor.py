@@ -7,7 +7,7 @@ import psycopg
 from pydantic import BaseModel, Field
 
 from backend.config import Settings, get_settings
-from backend.query.validator import ValidationResult
+from backend.query.validation import ValidationResult
 
 DEFAULT_TIMEOUT_MS = 5000
 
@@ -28,7 +28,7 @@ def run_validated_sql(
     settings: Settings | None = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> QueryExecutionResult:
-    if not validation_result.allowed or not validation_result.effective_sql:
+    if not validation_result.allowed or not validation_result.effective_query:
         raise ValueError("refusing to execute SQL that failed validation")
 
     settings = settings or get_settings()
@@ -39,7 +39,7 @@ def run_validated_sql(
             cur.execute("set transaction read only")
             cur.execute(f"set local statement_timeout = {int(timeout_ms)}")
             start = time.perf_counter()
-            cur.execute(validation_result.effective_sql)
+            cur.execute(validation_result.effective_query)
             column_names = [desc.name for desc in cur.description or []]
             tuple_rows = cur.fetchall()
             duration_ms = round((time.perf_counter() - start) * 1000, 2)

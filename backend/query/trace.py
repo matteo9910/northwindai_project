@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
+from backend.graph.cypher_validator import CypherValidationResult
 from backend.query.executor import QueryMetrics
-from backend.query.validator import ValidationResult
+from backend.query.validator import SqlValidationResult
+
+ValidationResultUnion = Annotated[
+    SqlValidationResult | CypherValidationResult,
+    Field(discriminator="dialect"),
+]
 
 
 class QueryRoute(StrEnum):
@@ -35,6 +41,6 @@ class AnswerTrace(BaseModel):
     retrieved_chunks: list[dict[str, Any]] = Field(default_factory=list)
     documents_used: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, QueryMetrics] = Field(default_factory=dict)
-    validation_results: list[ValidationResult] = Field(default_factory=list)
+    validation_results: list[ValidationResultUnion] = Field(default_factory=list)
     provenance: list[ProvenanceEntry] = Field(default_factory=list)
 

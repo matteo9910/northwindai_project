@@ -14,10 +14,10 @@ def test_cypher_validator_accepts_read_only_traversal_and_injects_limit():
 
     assert result.allowed is True
     assert result.statement_type == "READ"
-    assert result.referenced_schemas == ["Product", "Supplier"]
-    assert result.referenced_tables == ["SUPPLIES"]
-    assert result.effective_sql is not None
-    assert "LIMIT 1000" in result.effective_sql
+    assert result.referenced_labels == ["Product", "Supplier"]
+    assert result.referenced_relationship_types == ["SUPPLIES"]
+    assert result.effective_cypher is not None
+    assert "LIMIT 1000" in result.effective_cypher
 
 
 def test_cypher_validator_caps_existing_limit():
@@ -26,8 +26,8 @@ def test_cypher_validator_caps_existing_limit():
     )
 
     assert result.allowed is True
-    assert result.effective_sql is not None
-    assert "LIMIT 1000" in result.effective_sql
+    assert result.effective_cypher is not None
+    assert "LIMIT 1000" in result.effective_cypher
 
 
 def test_cypher_validator_rejects_mutations_and_call():

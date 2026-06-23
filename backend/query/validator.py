@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import sqlglot
 from pydantic import BaseModel, Field
@@ -51,13 +52,18 @@ BLOCKED_STATEMENT_NAMES = {
 }
 
 
-class ValidationResult(BaseModel):
+class SqlValidationResult(BaseModel):
+    dialect: Literal["sql"] = "sql"
     allowed: bool
     statement_type: str | None = None
     referenced_schemas: list[str] = Field(default_factory=list)
     referenced_tables: list[str] = Field(default_factory=list)
     violations: list[str] = Field(default_factory=list)
     effective_sql: str | None = None
+
+    @property
+    def effective_query(self) -> str | None:
+        return self.effective_sql
 
 
 @dataclass(frozen=True)
@@ -71,7 +77,7 @@ def validate_sql(
     sql: str,
     policy: QueryPolicy | None = None,
     max_rows: int | None = None,
-) -> ValidationResult:
+) -> SqlValidationResult:
     policy = policy or QueryPolicy()
     if max_rows is not None:
         policy = QueryPolicy(
@@ -84,13 +90,13 @@ def validate_sql(
     try:
         statements = [stmt for stmt in sqlglot.parse(sql, read="postgres") if stmt]
     except Exception as exc:  # noqa: BLE001 - validation must fail closed.
-        return ValidationResult(
+        return SqlValidationResult(
             allowed=False,
             violations=[*violations, f"parse_error:{exc}"],
         )
 
     if len(statements) != 1:
-        return ValidationResult(
+        return SqlValidationResult(
             allowed=False,
             violations=[*violations, "multiple_statements"],
         )
@@ -125,7 +131,7 @@ def validate_sql(
     if not violations:
         effective_sql = _cap_sql(tree, policy.max_rows)
 
-    return ValidationResult(
+    return SqlValidationResult(
         allowed=not violations,
         statement_type=statement_type,
         referenced_schemas=sorted(schemas),

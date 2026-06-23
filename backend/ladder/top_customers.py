@@ -15,7 +15,7 @@ from backend.ladder.constants import (
 )
 from backend.query.executor import QueryExecutionResult, run_validated_sql
 from backend.query.trace import AnswerTrace, ProvenanceEntry, QueryRoute
-from backend.query.validator import ValidationResult, validate_sql
+from backend.query.validator import SqlValidationResult, validate_sql
 
 TRACE_OUTPUT_PATH = Path("evaluation/answer_traces/step01_top_customers.json")
 
@@ -68,7 +68,7 @@ def answer_top_customers(settings: Settings | None = None) -> TopCustomersRespon
 
 
 def build_answer_trace(
-    validation: ValidationResult,
+    validation: SqlValidationResult,
     execution: QueryExecutionResult,
 ) -> AnswerTrace:
     return AnswerTrace(

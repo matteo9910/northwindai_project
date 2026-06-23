@@ -10,7 +10,7 @@ from backend.graph.cypher_executor import (
     CypherExecutionError,
     run_validated_cypher,
 )
-from backend.query.validator import ValidationResult
+from backend.graph.cypher_validator import CypherValidationResult
 
 
 @dataclass
@@ -101,10 +101,10 @@ class FakeDriver:
 
 
 def test_cypher_executor_refuses_failed_validation():
-    validation = ValidationResult(
+    validation = CypherValidationResult(
         allowed=False,
         violations=["blocked_keyword:create"],
-        effective_sql=None,
+        effective_cypher=None,
     )
 
     with pytest.raises(ValueError, match="failed validation"):
@@ -119,9 +119,9 @@ def test_cypher_executor_runs_explain_then_read_query(monkeypatch):
         yield FakeDriver(session)
 
     monkeypatch.setattr("backend.graph.cypher_executor.neo4j_driver", fake_driver)
-    validation = ValidationResult(
+    validation = CypherValidationResult(
         allowed=True,
-        effective_sql="MATCH (:Supplier)-[:SUPPLIES]->(p:Product) RETURN p LIMIT 1",
+        effective_cypher="MATCH (:Supplier)-[:SUPPLIES]->(p:Product) RETURN p LIMIT 1",
     )
 
     result = run_validated_cypher(
@@ -144,9 +144,9 @@ def test_cypher_executor_wraps_explain_failure(monkeypatch):
         yield FakeDriver(session)
 
     monkeypatch.setattr("backend.graph.cypher_executor.neo4j_driver", fake_driver)
-    validation = ValidationResult(
+    validation = CypherValidationResult(
         allowed=True,
-        effective_sql="MATCH bad",
+        effective_cypher="MATCH bad",
     )
 
     with pytest.raises(CypherExecutionError, match="explain_failed"):

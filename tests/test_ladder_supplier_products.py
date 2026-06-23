@@ -52,9 +52,9 @@ def test_supplier_products_cypher_validates():
     validation = validate_cypher(build_supplier_products_cypher())
 
     assert validation.allowed is True
-    assert validation.referenced_schemas == ["Product", "Supplier"]
-    assert validation.referenced_tables == ["SUPPLIES"]
-    assert validation.effective_sql is not None
+    assert validation.referenced_labels == ["Product", "Supplier"]
+    assert validation.referenced_relationship_types == ["SUPPLIES"]
+    assert validation.effective_cypher is not None
 
 
 def test_supplier_products_answer_trace_shape():

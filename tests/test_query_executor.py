@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from backend.query.executor import run_validated_sql
-from backend.query.validator import ValidationResult
+from backend.query.validator import SqlValidationResult
 
 
 @dataclass
@@ -52,7 +52,7 @@ class FakeConnection:
 
 
 def test_executor_refuses_failed_validation():
-    validation = ValidationResult(
+    validation = SqlValidationResult(
         allowed=False,
         violations=["not_read_only"],
         effective_sql=None,
@@ -68,7 +68,7 @@ def test_executor_uses_read_only_transaction(monkeypatch):
         "backend.query.executor.psycopg.connect",
         lambda _dsn: connection,
     )
-    validation = ValidationResult(
+    validation = SqlValidationResult(
         allowed=True,
         effective_sql="select customer_id from erp_core.customers limit 1",
     )

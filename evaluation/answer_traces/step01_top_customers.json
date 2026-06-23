@@ -8,11 +8,12 @@
   "metrics": {
     "postgresql": {
       "row_count": 10,
-      "duration_ms": 33.12
+      "duration_ms": 29.9
     }
   },
   "validation_results": [
     {
+      "dialect": "sql",
       "allowed": true,
       "statement_type": "SELECT",
       "referenced_schemas": [

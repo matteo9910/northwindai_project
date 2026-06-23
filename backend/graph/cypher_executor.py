@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from backend.config import Settings
 from backend.graph.connection import neo4j_driver
 from backend.query.executor import DEFAULT_TIMEOUT_MS, QueryMetrics
-from backend.query.validator import ValidationResult
+from backend.query.validation import ValidationResult
 
 
 class CypherExecutionError(RuntimeError):
@@ -30,11 +30,11 @@ def run_validated_cypher(
     settings: Settings | None = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> GraphExecutionResult:
-    if not validation_result.allowed or not validation_result.effective_sql:
+    if not validation_result.allowed or not validation_result.effective_query:
         raise ValueError("refusing to execute Cypher that failed validation")
 
     params = params or {}
-    cypher = validation_result.effective_sql
+    cypher = validation_result.effective_query
     timeout_seconds = timeout_ms / 1000
 
     try:
