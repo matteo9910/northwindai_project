@@ -8,9 +8,27 @@ from pydantic import BaseModel, Field
 
 from backend.query.validator import DEFAULT_MAX_ROWS
 
-ALLOWED_LABELS = {"Supplier", "Product"}
-ALLOWED_RELATIONSHIP_TYPES = {"SUPPLIES"}
-DEFAULT_MAX_DEPTH = 4
+ALLOWED_LABELS = {
+    "Supplier",
+    "Product",
+    "Customer",
+    "Order",
+    "Shipment",
+    "ShipmentDelayEvent",
+    "CustomerComplaintEvent",
+}
+ALLOWED_RELATIONSHIP_TYPES = {
+    "SUPPLIES",
+    "PLACED",
+    "CONTAINS",
+    "FULFILLED_BY",
+    "HAS_DELAY_EVENT",
+    "RAISED_BY",
+    "ABOUT_ORDER",
+    "ABOUT_PRODUCT",
+    "POSSIBLY_RELATED_TO",
+}
+DEFAULT_MAX_DEPTH = 6
 
 BLOCKED_KEYWORDS = (
     "CREATE",

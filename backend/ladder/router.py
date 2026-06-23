@@ -5,6 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from backend.config import Settings, get_settings
+from backend.ladder.shipment_delays import (
+    ShipmentDelaysResponse,
+    answer_shipment_delays,
+)
 from backend.ladder.supplier_products import (
     SupplierProductsResponse,
     answer_supplier_products,
@@ -26,3 +30,10 @@ def supplier_products(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SupplierProductsResponse:
     return answer_supplier_products(settings=settings)
+
+
+@router.get("/shipment-delays", response_model=ShipmentDelaysResponse)
+def shipment_delays(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ShipmentDelaysResponse:
+    return answer_shipment_delays(settings=settings)

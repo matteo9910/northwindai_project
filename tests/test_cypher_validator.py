@@ -51,11 +51,11 @@ def test_cypher_validator_rejects_mutations_and_call():
 
 def test_cypher_validator_rejects_bad_label_and_relationship():
     result = validate_cypher(
-        "MATCH (:Customer)-[:BOUGHT]->(p:Product) RETURN p"
+        "MATCH (:UnknownCustomer)-[:BOUGHT]->(p:Product) RETURN p"
     )
 
     assert result.allowed is False
-    assert "label_not_allowed:Customer" in result.violations
+    assert "label_not_allowed:UnknownCustomer" in result.violations
     assert "relationship_not_allowed:BOUGHT" in result.violations
 
 
@@ -96,4 +96,30 @@ def test_cypher_validator_rejects_uppercase_label_outside_allowlist():
 
     assert result.allowed is False
     assert "label_not_allowed:CUSTOMER" in result.violations
+
+
+def test_cypher_validator_accepts_shipment_delay_traversal():
+    result = validate_cypher(
+        """
+        MATCH (:Supplier)-[:SUPPLIES]->(:Product)<-[:CONTAINS]-(:Order)
+              -[:FULFILLED_BY]->(:Shipment)-[:HAS_DELAY_EVENT]
+              ->(:ShipmentDelayEvent)
+        RETURN count(*) AS total
+        """
+    )
+
+    assert result.allowed is True
+    assert result.referenced_labels == [
+        "Order",
+        "Product",
+        "Shipment",
+        "ShipmentDelayEvent",
+        "Supplier",
+    ]
+    assert result.referenced_relationship_types == [
+        "CONTAINS",
+        "FULFILLED_BY",
+        "HAS_DELAY_EVENT",
+        "SUPPLIES",
+    ]
 

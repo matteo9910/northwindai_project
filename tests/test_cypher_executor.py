@@ -133,7 +133,7 @@ def test_cypher_executor_runs_explain_then_read_query(monkeypatch):
     assert session.queries[0][0].startswith("EXPLAIN")
     assert result.metrics.row_count == 1
     assert result.records[0]["product_id"] == 9
-    assert result.graph_paths[0]["relationship"]["source_column"] == "supplier_id"
+    assert result.graph_paths == []
 
 
 def test_cypher_executor_wraps_explain_failure(monkeypatch):

@@ -1,0 +1,65 @@
+{
+  "step": "step03_shipment_delays",
+  "question": "Which Tokyo Traders orders had delays?",
+  "expected_route": "graph_only",
+  "expected_answer": {
+    "non_empty": true,
+    "entity": "delayed_order_shipment",
+    "ordered_by": [
+      {
+        "field": "delay_days",
+        "direction": "desc"
+      }
+    ],
+    "deduplicate_by": [
+      "order_id",
+      "shipment_id"
+    ],
+    "required_fields": [
+      "order_id",
+      "shipment_id",
+      "delay_days",
+      "expected_delivery_date",
+      "actual_delivery_date"
+    ],
+    "matches_postgres_readback": {
+      "supplier_id": 4,
+      "condition": "shipments.delay_days > 0"
+    }
+  },
+  "expected_validation": {
+    "dialect": "cypher",
+    "allowed": true,
+    "read_only": true,
+    "limit_enforced": true
+  },
+  "expected_graph": {
+    "required_node_labels": [
+      "Supplier",
+      "Product",
+      "Order",
+      "Shipment",
+      "ShipmentDelayEvent"
+    ],
+    "required_relationship_types": [
+      "SUPPLIES",
+      "CONTAINS",
+      "FULFILLED_BY",
+      "HAS_DELAY_EVENT"
+    ],
+    "graph_paths_populated": true,
+    "provenance_required": true
+  },
+  "expected_trace": {
+    "generated_cypher_present": true,
+    "metrics_key": "neo4j",
+    "sql_fields_empty": true,
+    "vector_fields_empty": true,
+    "provenance_rule_names": [
+      "order_projection",
+      "order_contains_product_projection",
+      "shipment_projection",
+      "shipment_delay_event"
+    ]
+  }
+}

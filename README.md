@@ -91,20 +91,23 @@ Run the SQL-only Top Customers ladder step:
 python -m backend.ladder.top_customers --emit-trace
 ```
 
-Prepare the Phase 05 Neo4j graph projection before running the graph-only
-Supplier -> Product ladder step:
+Prepare the Neo4j graph projection before running the graph-only Supplier ->
+Product and Shipment Delays ladder steps:
 
 ```powershell
 docker compose up -d neo4j
 python -m backend.graph.projection
 python -m backend.ladder.supplier_products --emit-trace
+python -m backend.ladder.shipment_delays --emit-trace
 ```
 
-The projection command reads `erp_core.suppliers` and `erp_core.products` from
-PostgreSQL and writes `Supplier`, `Product`, and `SUPPLIES` graph elements into
-Neo4j with Graph Provenance. Use `python -m backend.graph.projection --reset`
-only to clear the Phase 05 projected `Supplier`/`Product`/`SUPPLIES` elements
-before re-projecting them.
+The projection command reads the current ladder scope from PostgreSQL and writes
+`Supplier`, `Product`, `Customer`, `Order`, `Shipment`, `ShipmentDelayEvent`, and
+`CustomerComplaintEvent` graph elements into Neo4j with Graph Provenance. It also
+creates the explicit relationships needed by the graph-only ladder steps and the
+`POSSIBLY_RELATED_TO` plausible relationship between shipment delays and
+complaints. Use `python -m backend.graph.projection --reset` only to clear the
+full projected graph scope supported so far before re-projecting it.
 
 ## Tests and Linting
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import date, datetime
 from typing import Any
 
 import neo4j
@@ -53,7 +54,7 @@ def run_validated_cypher(
 
     return GraphExecutionResult(
         records=records,
-        graph_paths=[_graph_path_from_record(record) for record in records],
+        graph_paths=[],
         metrics=QueryMetrics(row_count=len(records), duration_ms=duration_ms),
     )
 
@@ -63,33 +64,14 @@ def _json_ready(value: Any) -> Any:
         return {str(key): _json_ready(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_json_ready(item) for item in value]
+    if isinstance(value, date | datetime):
+        return value.isoformat()
+    if hasattr(value, "iso_format"):
+        return value.iso_format()
     return value
 
 
-def _graph_path_from_record(record: dict[str, Any]) -> dict[str, Any]:
-    supplier_properties = record.get("supplier_properties") or {}
-    relationship_properties = record.get("relationship_properties") or {}
-    product_properties = record.get("product_properties") or {}
-    return {
-        "supplier": {
-            "supplier_id": record.get("supplier_id"),
-            "company_name": record.get("supplier_name"),
-            **_essential_provenance(supplier_properties),
-        },
-        "relationship": {
-            "type": record.get("relationship_type"),
-            **_essential_provenance(relationship_properties),
-            "source_column": relationship_properties.get("source_column"),
-        },
-        "product": {
-            "product_id": record.get("product_id"),
-            "product_name": record.get("product_name"),
-            **_essential_provenance(product_properties),
-        },
-    }
-
-
-def _essential_provenance(properties: dict[str, Any]) -> dict[str, Any]:
+def essential_provenance(properties: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "source_system",
         "source_schema",

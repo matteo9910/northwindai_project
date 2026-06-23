@@ -7,7 +7,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from backend.config import Settings, get_settings
-from backend.graph.cypher_executor import GraphExecutionResult, run_validated_cypher
+from backend.graph.cypher_executor import (
+    GraphExecutionResult,
+    essential_provenance,
+    run_validated_cypher,
+)
 from backend.graph.cypher_validator import CypherValidationResult, validate_cypher
 from backend.graph.projection import SUPPLIES_RULE_NAME
 from backend.ladder.constants import SUPPLIER_PRODUCTS_COMPANY
@@ -64,7 +68,12 @@ def answer_supplier_products(
     ]
     return SupplierProductsResponse(
         answer=answer,
-        answer_trace=build_answer_trace(validation, execution),
+        answer_trace=build_answer_trace(
+            validation,
+            execution.model_copy(
+                update={"graph_paths": build_graph_paths(execution.records)}
+            ),
+        ),
     )
 
 
@@ -105,6 +114,34 @@ def build_answer_trace(
             ),
         ],
     )
+
+
+def build_graph_paths(records: list[dict]) -> list[dict]:
+    paths = []
+    for record in records:
+        supplier_properties = record.get("supplier_properties") or {}
+        relationship_properties = record.get("relationship_properties") or {}
+        product_properties = record.get("product_properties") or {}
+        paths.append(
+            {
+                "supplier": {
+                    "supplier_id": record.get("supplier_id"),
+                    "company_name": record.get("supplier_name"),
+                    **essential_provenance(supplier_properties),
+                },
+                "relationship": {
+                    "type": record.get("relationship_type"),
+                    **essential_provenance(relationship_properties),
+                    "source_column": relationship_properties.get("source_column"),
+                },
+                "product": {
+                    "product_id": record.get("product_id"),
+                    "product_name": record.get("product_name"),
+                    **essential_provenance(product_properties),
+                },
+            }
+        )
+    return paths
 
 
 def persist_answer_trace(
