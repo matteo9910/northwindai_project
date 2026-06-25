@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from backend.config import Settings, get_settings
+from backend.graph.complaint_issue_types import DELIVERY_DELAY
 from backend.graph.cypher_executor import (
     GraphExecutionResult,
     essential_provenance,
@@ -14,11 +15,14 @@ from backend.graph.cypher_executor import (
 )
 from backend.graph.cypher_validator import CypherValidationResult, validate_cypher
 from backend.graph.projection import (
+    CLASSIFIED_AS_RULE_NAME,
     CONTAINS_RULE_NAME,
     FULFILLED_BY_RULE_NAME,
     ORDER_RULE_NAME,
     SHIPMENT_DELAY_RULE_NAME,
     SHIPMENT_RULE_NAME,
+    SUPPLIES_RULE_NAME,
+    SUPPORTED_BY_DELAY_RULE_NAME,
 )
 from backend.ladder.constants import SHIPMENT_DELAYS_COMPANY
 from backend.query.trace import AnswerTrace, ProvenanceEntry, QueryRoute
@@ -29,6 +33,10 @@ SHIPMENT_DELAYS_CYPHER_TEMPLATE = """
 MATCH (s:Supplier {company_name: $company_name})-[:SUPPLIES]->(p:Product)
       <-[:CONTAINS]-(o:Order)-[:FULFILLED_BY]->(sh:Shipment)
       -[:HAS_DELAY_EVENT]->(e:ShipmentDelayEvent)
+MATCH (dc:DeliveryDelayComplaintEvent)-[:ABOUT_ORDER]->(o)
+MATCH (dc)-[:ABOUT_PRODUCT]->(p)
+MATCH (dc)-[:SUPPORTED_BY_DELAY]->(e)
+MATCH (cc:CustomerComplaintEvent)-[:CLASSIFIED_AS]->(dc)
 RETURN
   s.supplier_id AS supplier_id,
   s.company_name AS supplier_name,
@@ -41,8 +49,11 @@ RETURN
   sh.shipment_id AS shipment_id,
   properties(sh) AS shipment_properties,
   e.delay_days AS delay_days,
-  properties(e) AS event_properties
-ORDER BY e.delay_days DESC, o.order_id, sh.shipment_id, p.product_id
+  properties(e) AS event_properties,
+  cc.communication_id AS communication_id,
+  properties(cc) AS complaint_properties,
+  properties(dc) AS issue_event_properties
+ORDER BY e.delay_days DESC, o.order_id, sh.shipment_id, cc.communication_id
 """.strip()
 
 
@@ -50,6 +61,9 @@ class ShipmentDelay(BaseModel):
     order_id: int
     shipment_id: int
     delay_days: int
+    communication_id: int
+    issue_type: str
+    subject: str
     expected_delivery_date: str | None = None
     actual_delivery_date: str | None = None
 
@@ -83,19 +97,35 @@ def answer_shipment_delays(
 
 
 def build_answer(records: list[dict]) -> list[ShipmentDelay]:
-    by_shipment: dict[tuple[int, int], ShipmentDelay] = {}
+    by_complaint: dict[tuple[int, int, int], ShipmentDelay] = {}
     for row in records:
         order_id = int(row["order_id"])
         shipment_id = int(row["shipment_id"])
-        key = (order_id, shipment_id)
-        if key in by_shipment:
+        communication_id = int(row["communication_id"])
+        key = (order_id, shipment_id, communication_id)
+        if key in by_complaint:
             continue
         shipment_properties = row.get("shipment_properties") or {}
         event_properties = row.get("event_properties") or {}
-        by_shipment[key] = ShipmentDelay(
+        complaint_properties = row.get("complaint_properties") or {}
+        issue_event_properties = row.get("issue_event_properties") or {}
+        by_complaint[key] = ShipmentDelay(
             order_id=order_id,
             shipment_id=shipment_id,
             delay_days=int(row["delay_days"]),
+            communication_id=communication_id,
+            issue_type=str(
+                issue_event_properties.get(
+                    "issue_type",
+                    complaint_properties.get("issue_type"),
+                )
+            ),
+            subject=str(
+                issue_event_properties.get(
+                    "subject",
+                    complaint_properties.get("subject"),
+                )
+            ),
             expected_delivery_date=shipment_properties.get(
                 "expected_delivery_date",
                 event_properties.get("expected_delivery_date"),
@@ -106,8 +136,13 @@ def build_answer(records: list[dict]) -> list[ShipmentDelay]:
             ),
         )
     return sorted(
-        by_shipment.values(),
-        key=lambda item: (-item.delay_days, item.order_id, item.shipment_id),
+        by_complaint.values(),
+        key=lambda item: (
+            -item.delay_days,
+            item.order_id,
+            item.shipment_id,
+            item.communication_id,
+        ),
     )
 
 
@@ -119,6 +154,8 @@ def build_graph_paths(records: list[dict]) -> list[dict]:
         order_properties = row.get("order_properties") or {}
         shipment_properties = row.get("shipment_properties") or {}
         event_properties = row.get("event_properties") or {}
+        complaint_properties = row.get("complaint_properties") or {}
+        issue_event_properties = row.get("issue_event_properties") or {}
         paths.append(
             {
                 "supplier": {
@@ -155,6 +192,21 @@ def build_graph_paths(records: list[dict]) -> list[dict]:
                     "derived_from": event_properties.get("derived_from"),
                     **essential_provenance(event_properties),
                 },
+                "customer_complaint_event": {
+                    "communication_id": row.get("communication_id"),
+                    "subject": complaint_properties.get("subject"),
+                    "issue_type": complaint_properties.get("issue_type"),
+                    **essential_provenance(complaint_properties),
+                },
+                "complaint_issue_event": {
+                    "label": "DeliveryDelayComplaintEvent",
+                    "communication_id": issue_event_properties.get(
+                        "communication_id"
+                    ),
+                    "subject": issue_event_properties.get("subject"),
+                    "issue_type": issue_event_properties.get("issue_type"),
+                    **essential_provenance(issue_event_properties),
+                },
                 "relationships": [
                     {"type": "SUPPLIES"},
                     {"type": "CONTAINS", "rule_name": CONTAINS_RULE_NAME},
@@ -162,6 +214,11 @@ def build_graph_paths(records: list[dict]) -> list[dict]:
                     {
                         "type": "HAS_DELAY_EVENT",
                         "rule_name": SHIPMENT_DELAY_RULE_NAME,
+                    },
+                    {"type": "CLASSIFIED_AS", "rule_name": CLASSIFIED_AS_RULE_NAME},
+                    {
+                        "type": "SUPPORTED_BY_DELAY",
+                        "rule_name": SUPPORTED_BY_DELAY_RULE_NAME,
                     },
                 ],
             }
@@ -201,7 +258,7 @@ def build_answer_trace(
                 source_schema="erp_core",
                 source_table="products",
                 source_columns=["product_id", "supplier_id"],
-                rule_name=CONTAINS_RULE_NAME,
+                rule_name=SUPPLIES_RULE_NAME,
                 rule_version="v1",
             ),
             ProvenanceEntry(
@@ -231,6 +288,20 @@ def build_answer_trace(
                 rule_name=SHIPMENT_DELAY_RULE_NAME,
                 rule_version="v1",
             ),
+            ProvenanceEntry(
+                source_system="postgresql",
+                source_schema="erp_docs",
+                source_table="customer_communications",
+                source_columns=[
+                    "communication_id",
+                    "subject",
+                    "body",
+                    "order_id",
+                    "product_id",
+                ],
+                rule_name=DELIVERY_DELAY.rule_name,
+                rule_version="v1",
+            ),
         ],
     )
 
@@ -248,7 +319,9 @@ def persist_answer_trace(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Step 03 Shipment Delays.")
+    parser = argparse.ArgumentParser(
+        description="Run Step 03 Shipment Delay Complaints."
+    )
     parser.add_argument("--emit-trace", action="store_true")
     parser.add_argument(
         "--trace-path",

@@ -9,6 +9,12 @@ import psycopg
 from neo4j import Driver
 
 from backend.config import Settings, get_settings
+from backend.graph.complaint_issue_types import (
+    COMPLAINT_ISSUE_TYPES,
+    DELIVERY_DELAY,
+    ComplaintIssueType,
+    complaint_issue_type_for_subject,
+)
 from backend.graph.connection import neo4j_driver
 
 PROJECTION_VERSION = "v1"
@@ -24,9 +30,8 @@ CONTAINS_RULE_NAME = "order_contains_product_projection"
 FULFILLED_BY_RULE_NAME = "order_fulfilled_by_shipment_projection"
 SHIPMENT_DELAY_RULE_NAME = "shipment_delay_event"
 CUSTOMER_COMPLAINT_RULE_NAME = "customer_complaint_event"
-POSSIBLY_RELATED_RULE_NAME = "delay_complaint_possibly_related"
-PLAUSIBLE_LINK_TIME_WINDOW_DAYS = 14
-PLAUSIBLE_LINK_CONFIDENCE = 0.8
+CLASSIFIED_AS_RULE_NAME = "complaint_classified_as_issue"
+SUPPORTED_BY_DELAY_RULE_NAME = "delivery_complaint_supported_by_delay"
 
 GRAPH_CONSTRAINTS = [
     """
@@ -56,6 +61,18 @@ GRAPH_CONSTRAINTS = [
     """
     CREATE CONSTRAINT customer_complaint_event_id_unique IF NOT EXISTS
     FOR (n:CustomerComplaintEvent) REQUIRE n.communication_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT delivery_delay_complaint_event_id_unique IF NOT EXISTS
+    FOR (n:DeliveryDelayComplaintEvent) REQUIRE n.communication_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT packaging_quality_complaint_event_id_unique IF NOT EXISTS
+    FOR (n:PackagingQualityComplaintEvent) REQUIRE n.communication_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT product_quality_complaint_event_id_unique IF NOT EXISTS
+    FOR (n:ProductQualityComplaintEvent) REQUIRE n.communication_id IS UNIQUE
     """,
 ]
 
@@ -126,68 +143,13 @@ select communication_id,
        product_id,
        channel,
        contact_reason,
+       subject,
+       body,
        sentiment,
        occurred_at
 from erp_docs.customer_communications
 where contact_reason = 'complaint'
 order by communication_id
-""".strip()
-
-PLAUSIBLE_LINKS_SQL = """
-select sh.shipment_id, cc.communication_id
-from erp_core.shipments sh
-join erp_docs.customer_communications cc on cc.order_id = sh.order_id
-where sh.delay_days > 0
-  and sh.actual_delivery_date is not null
-  and cc.contact_reason = 'complaint'
-  and cc.occurred_at >= sh.actual_delivery_date::timestamptz
-  and cc.occurred_at <= (
-      sh.actual_delivery_date + (%s * interval '1 day')
-  )::timestamptz
-  and (
-      lower(coalesce(cc.body, '')) like '%%delay%%'
-      or lower(coalesce(cc.body, '')) like '%%late%%'
-  )
-order by sh.shipment_id, cc.communication_id
-""".strip()
-
-SUPPLIER_MERGE = """
-MERGE (s:Supplier {supplier_id: $supplier_id})
-SET s.company_name = $company_name,
-    s.source_system = 'postgresql',
-    s.source_schema = 'erp_core',
-    s.source_table = 'suppliers',
-    s.source_pk = $supplier_id,
-    s.projection_version = $version,
-    s.rule_name = $rule_name,
-    s.rule_version = $rule_version
-""".strip()
-
-PRODUCT_MERGE = """
-MERGE (p:Product {product_id: $product_id})
-SET p.product_name = $product_name,
-    p.supplier_id = $supplier_id,
-    p.source_system = 'postgresql',
-    p.source_schema = 'erp_core',
-    p.source_table = 'products',
-    p.source_pk = $product_id,
-    p.projection_version = $version,
-    p.rule_name = $rule_name,
-    p.rule_version = $rule_version
-""".strip()
-
-SUPPLIES_MERGE = """
-MATCH (s:Supplier {supplier_id: $supplier_id})
-MATCH (p:Product {product_id: $product_id})
-MERGE (s)-[r:SUPPLIES]->(p)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_core',
-    r.source_table = 'products',
-    r.source_pk = $product_id,
-    r.source_column = 'supplier_id',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
 """.strip()
 
 SUPPLIER_MERGE_BATCH = """
@@ -232,18 +194,6 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
-CUSTOMER_MERGE = """
-MERGE (c:Customer {customer_id: $customer_id})
-SET c.company_name = $company_name,
-    c.source_system = 'postgresql',
-    c.source_schema = 'erp_core',
-    c.source_table = 'customers',
-    c.source_pk = $customer_id,
-    c.projection_version = $version,
-    c.rule_name = $rule_name,
-    c.rule_version = $rule_version
-""".strip()
-
 CUSTOMER_MERGE_BATCH = """
 UNWIND $rows AS row
 MERGE (c:Customer {customer_id: row.customer_id})
@@ -255,19 +205,6 @@ SET c.company_name = row.company_name,
     c.projection_version = $version,
     c.rule_name = $rule_name,
     c.rule_version = $rule_version
-""".strip()
-
-ORDER_MERGE = """
-MERGE (o:Order {order_id: $order_id})
-SET o.customer_id = $customer_id,
-    o.order_date = $order_date,
-    o.source_system = 'postgresql',
-    o.source_schema = 'erp_core',
-    o.source_table = 'orders',
-    o.source_pk = $order_id,
-    o.projection_version = $version,
-    o.rule_name = $rule_name,
-    o.rule_version = $rule_version
 """.strip()
 
 ORDER_MERGE_BATCH = """
@@ -282,22 +219,6 @@ SET o.customer_id = row.customer_id,
     o.projection_version = $version,
     o.rule_name = $rule_name,
     o.rule_version = $rule_version
-""".strip()
-
-SHIPMENT_MERGE = """
-MERGE (sh:Shipment {shipment_id: $shipment_id})
-SET sh.order_id = $order_id,
-    sh.expected_delivery_date = $expected_delivery_date,
-    sh.actual_delivery_date = $actual_delivery_date,
-    sh.delay_days = $delay_days,
-    sh.status = $status,
-    sh.source_system = 'postgresql',
-    sh.source_schema = 'erp_core',
-    sh.source_table = 'shipments',
-    sh.source_pk = $shipment_id,
-    sh.projection_version = $version,
-    sh.rule_name = $rule_name,
-    sh.rule_version = $rule_version
 """.strip()
 
 SHIPMENT_MERGE_BATCH = """
@@ -317,20 +238,6 @@ SET sh.order_id = row.order_id,
     sh.rule_version = $rule_version
 """.strip()
 
-PLACED_MERGE = """
-MATCH (c:Customer {customer_id: $customer_id})
-MATCH (o:Order {order_id: $order_id})
-MERGE (c)-[r:PLACED]->(o)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_core',
-    r.source_table = 'orders',
-    r.source_pk = $order_id,
-    r.source_column = 'customer_id',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
 PLACED_MERGE_BATCH = """
 UNWIND $rows AS row
 MATCH (c:Customer {customer_id: row.customer_id})
@@ -341,21 +248,6 @@ SET r.source_system = 'postgresql',
     r.source_table = 'orders',
     r.source_pk = row.order_id,
     r.source_column = 'customer_id',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
-CONTAINS_MERGE = """
-MATCH (o:Order {order_id: $order_id})
-MATCH (p:Product {product_id: $product_id})
-MERGE (o)-[r:CONTAINS]->(p)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_core',
-    r.source_table = 'order_details',
-    r.source_pk = $source_pk,
-    r.source_order_id = $order_id,
-    r.source_product_id = $product_id,
     r.projection_version = $version,
     r.rule_name = $rule_name,
     r.rule_version = $rule_version
@@ -377,20 +269,6 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
-FULFILLED_BY_MERGE = """
-MATCH (o:Order {order_id: $order_id})
-MATCH (sh:Shipment {shipment_id: $shipment_id})
-MERGE (o)-[r:FULFILLED_BY]->(sh)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_core',
-    r.source_table = 'shipments',
-    r.source_pk = $shipment_id,
-    r.source_column = 'order_id',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
 FULFILLED_BY_MERGE_BATCH = """
 UNWIND $rows AS row
 MATCH (o:Order {order_id: row.order_id})
@@ -401,31 +279,6 @@ SET r.source_system = 'postgresql',
     r.source_table = 'shipments',
     r.source_pk = row.shipment_id,
     r.source_column = 'order_id',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
-SHIPMENT_DELAY_EVENT_MERGE = """
-MATCH (sh:Shipment {shipment_id: $shipment_id})
-MERGE (e:ShipmentDelayEvent {shipment_id: $shipment_id})
-SET e.delay_days = $delay_days,
-    e.expected_delivery_date = $expected_delivery_date,
-    e.actual_delivery_date = $actual_delivery_date,
-    e.source_system = 'postgresql',
-    e.source_schema = 'erp_core',
-    e.source_table = 'shipments',
-    e.source_pk = $shipment_id,
-    e.derived_from = 'erp_core.shipments',
-    e.projection_version = $version,
-    e.rule_name = $rule_name,
-    e.rule_version = $rule_version
-MERGE (sh)-[r:HAS_DELAY_EVENT]->(e)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_core',
-    r.source_table = 'shipments',
-    r.source_pk = $shipment_id,
-    r.derived_from = 'erp_core.shipments',
     r.projection_version = $version,
     r.rule_name = $rule_name,
     r.rule_version = $rule_version
@@ -457,25 +310,6 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
-CUSTOMER_COMPLAINT_EVENT_MERGE = """
-MERGE (e:CustomerComplaintEvent {communication_id: $communication_id})
-SET e.customer_id = $customer_id,
-    e.order_id = $order_id,
-    e.product_id = $product_id,
-    e.channel = $channel,
-    e.contact_reason = $contact_reason,
-    e.sentiment = $sentiment,
-    e.occurred_at = $occurred_at,
-    e.source_system = 'postgresql',
-    e.source_schema = 'erp_docs',
-    e.source_table = 'customer_communications',
-    e.source_pk = $communication_id,
-    e.derived_from = 'erp_docs.customer_communications',
-    e.projection_version = $version,
-    e.rule_name = $rule_name,
-    e.rule_version = $rule_version
-""".strip()
-
 CUSTOMER_COMPLAINT_EVENT_MERGE_BATCH = """
 UNWIND $rows AS row
 MERGE (e:CustomerComplaintEvent {communication_id: row.communication_id})
@@ -484,6 +318,9 @@ SET e.customer_id = row.customer_id,
     e.product_id = row.product_id,
     e.channel = row.channel,
     e.contact_reason = row.contact_reason,
+    e.subject = row.subject,
+    e.issue_type = row.issue_type,
+    e.body = row.body,
     e.sentiment = row.sentiment,
     e.occurred_at = row.occurred_at,
     e.source_system = 'postgresql',
@@ -496,21 +333,6 @@ SET e.customer_id = row.customer_id,
     e.rule_version = $rule_version
 """.strip()
 
-COMPLAINT_RAISED_BY_MERGE = """
-MATCH (e:CustomerComplaintEvent {communication_id: $communication_id})
-MATCH (c:Customer {customer_id: $customer_id})
-MERGE (e)-[r:RAISED_BY]->(c)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_docs',
-    r.source_table = 'customer_communications',
-    r.source_pk = $communication_id,
-    r.source_column = 'customer_id',
-    r.derived_from = 'erp_docs.customer_communications',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
 COMPLAINT_RAISED_BY_MERGE_BATCH = """
 UNWIND $rows AS row
 MATCH (e:CustomerComplaintEvent {communication_id: row.communication_id})
@@ -521,21 +343,6 @@ SET r.source_system = 'postgresql',
     r.source_table = 'customer_communications',
     r.source_pk = row.communication_id,
     r.source_column = 'customer_id',
-    r.derived_from = 'erp_docs.customer_communications',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
-COMPLAINT_ABOUT_ORDER_MERGE = """
-MATCH (e:CustomerComplaintEvent {communication_id: $communication_id})
-MATCH (o:Order {order_id: $order_id})
-MERGE (e)-[r:ABOUT_ORDER]->(o)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_docs',
-    r.source_table = 'customer_communications',
-    r.source_pk = $communication_id,
-    r.source_column = 'order_id',
     r.derived_from = 'erp_docs.customer_communications',
     r.projection_version = $version,
     r.rule_name = $rule_name,
@@ -558,21 +365,6 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
-COMPLAINT_ABOUT_PRODUCT_MERGE = """
-MATCH (e:CustomerComplaintEvent {communication_id: $communication_id})
-MATCH (p:Product {product_id: $product_id})
-MERGE (e)-[r:ABOUT_PRODUCT]->(p)
-SET r.source_system = 'postgresql',
-    r.source_schema = 'erp_docs',
-    r.source_table = 'customer_communications',
-    r.source_pk = $communication_id,
-    r.source_column = 'product_id',
-    r.derived_from = 'erp_docs.customer_communications',
-    r.projection_version = $version,
-    r.rule_name = $rule_name,
-    r.rule_version = $rule_version
-""".strip()
-
 COMPLAINT_ABOUT_PRODUCT_MERGE_BATCH = """
 UNWIND $rows AS row
 MATCH (e:CustomerComplaintEvent {communication_id: row.communication_id})
@@ -589,38 +381,144 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
-POSSIBLY_RELATED_MERGE = """
-MATCH (d:ShipmentDelayEvent {shipment_id: $shipment_id})
-MATCH (c:CustomerComplaintEvent {communication_id: $communication_id})
-MERGE (d)-[r:POSSIBLY_RELATED_TO]->(c)
-SET r.confidence = $confidence,
-    r.matching_reason = $matching_reason,
-    r.time_window_days = $time_window_days,
-    r.evidence = $evidence,
-    r.source_system = 'postgresql',
-    r.source_schema = 'erp_core+erp_docs',
-    r.source_table = 'shipments+customer_communications',
-    r.source_pk = $source_pk,
-    r.derived_from = 'erp_core.shipments+erp_docs.customer_communications',
+def issue_event_merge_batch(label: str) -> str:
+    return f"""
+UNWIND $rows AS row
+MERGE (e:{label} {{communication_id: row.communication_id}})
+SET e.customer_id = row.customer_id,
+    e.order_id = row.order_id,
+    e.product_id = row.product_id,
+    e.subject = row.subject,
+    e.issue_type = row.issue_type,
+    e.body = row.body,
+    e.sentiment = row.sentiment,
+    e.occurred_at = row.occurred_at,
+    e.source_system = 'postgresql',
+    e.source_schema = 'erp_docs',
+    e.source_table = 'customer_communications',
+    e.source_pk = row.communication_id,
+    e.derived_from = 'erp_docs.customer_communications.subject',
+    e.projection_version = $version,
+    e.rule_name = $rule_name,
+    e.rule_version = $rule_version
+""".strip()
+
+
+DELIVERY_DELAY_EVENT_MERGE_BATCH = """
+UNWIND $rows AS row
+MATCH (o:Order {order_id: row.order_id})-[:CONTAINS]->(
+  :Product {product_id: row.product_id}
+)
+MATCH (o)-[:FULFILLED_BY]->(:Shipment)-[:HAS_DELAY_EVENT]->(
+  :ShipmentDelayEvent
+)
+MERGE (e:DeliveryDelayComplaintEvent {communication_id: row.communication_id})
+SET e.customer_id = row.customer_id,
+    e.order_id = row.order_id,
+    e.product_id = row.product_id,
+    e.subject = row.subject,
+    e.issue_type = row.issue_type,
+    e.body = row.body,
+    e.sentiment = row.sentiment,
+    e.occurred_at = row.occurred_at,
+    e.source_system = 'postgresql',
+    e.source_schema = 'erp_docs',
+    e.source_table = 'customer_communications',
+    e.source_pk = row.communication_id,
+    e.derived_from = 'erp_docs.customer_communications.subject+erp_core.shipments',
+    e.projection_version = $version,
+    e.rule_name = $rule_name,
+    e.rule_version = $rule_version
+""".strip()
+
+
+def issue_event_classified_as_batch(label: str) -> str:
+    return f"""
+UNWIND $rows AS row
+MATCH (c:CustomerComplaintEvent {{communication_id: row.communication_id}})
+MATCH (e:{label} {{communication_id: row.communication_id}})
+MERGE (c)-[r:CLASSIFIED_AS]->(e)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'customer_communications',
+    r.source_pk = row.communication_id,
+    r.source_column = 'subject',
+    r.derived_from = 'erp_docs.customer_communications.subject',
     r.projection_version = $version,
     r.rule_name = $rule_name,
     r.rule_version = $rule_version
 """.strip()
 
-POSSIBLY_RELATED_MERGE_BATCH = """
+
+def issue_event_raised_by_batch(label: str) -> str:
+    return f"""
 UNWIND $rows AS row
-MATCH (d:ShipmentDelayEvent {shipment_id: row.shipment_id})
-MATCH (c:CustomerComplaintEvent {communication_id: row.communication_id})
-MERGE (d)-[r:POSSIBLY_RELATED_TO]->(c)
-SET r.confidence = row.confidence,
-    r.matching_reason = row.matching_reason,
-    r.time_window_days = row.time_window_days,
-    r.evidence = row.evidence,
-    r.source_system = 'postgresql',
+MATCH (e:{label} {{communication_id: row.communication_id}})
+MATCH (c:Customer {{customer_id: row.customer_id}})
+MERGE (e)-[r:RAISED_BY]->(c)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'customer_communications',
+    r.source_pk = row.communication_id,
+    r.source_column = 'customer_id',
+    r.derived_from = 'erp_docs.customer_communications',
+    r.projection_version = $version,
+    r.rule_name = $rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
+
+def issue_event_about_order_batch(label: str) -> str:
+    return f"""
+UNWIND $rows AS row
+MATCH (e:{label} {{communication_id: row.communication_id}})
+MATCH (o:Order {{order_id: row.order_id}})
+MERGE (e)-[r:ABOUT_ORDER]->(o)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'customer_communications',
+    r.source_pk = row.communication_id,
+    r.source_column = 'order_id',
+    r.derived_from = 'erp_docs.customer_communications',
+    r.projection_version = $version,
+    r.rule_name = $rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
+
+def issue_event_about_product_batch(label: str) -> str:
+    return f"""
+UNWIND $rows AS row
+MATCH (e:{label} {{communication_id: row.communication_id}})
+MATCH (p:Product {{product_id: row.product_id}})
+MERGE (e)-[r:ABOUT_PRODUCT]->(p)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'customer_communications',
+    r.source_pk = row.communication_id,
+    r.source_column = 'product_id',
+    r.derived_from = 'erp_docs.customer_communications',
+    r.projection_version = $version,
+    r.rule_name = $rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
+
+DELIVERY_SUPPORTED_BY_DELAY_BATCH = """
+UNWIND $rows AS row
+MATCH (e:DeliveryDelayComplaintEvent {communication_id: row.communication_id})
+MATCH (o:Order {order_id: row.order_id})-[:CONTAINS]->(
+  :Product {product_id: row.product_id}
+)
+MATCH (o)-[:FULFILLED_BY]->(:Shipment)-[:HAS_DELAY_EVENT]->(
+  delay:ShipmentDelayEvent
+)
+MERGE (e)-[r:SUPPORTED_BY_DELAY]->(delay)
+SET r.source_system = 'postgresql',
     r.source_schema = 'erp_core+erp_docs',
     r.source_table = 'shipments+customer_communications',
-    r.source_pk = row.source_pk,
-    r.derived_from = 'erp_core.shipments+erp_docs.customer_communications',
+    r.source_pk = row.communication_id,
+    r.derived_from = 'erp_core.shipments+erp_docs.customer_communications.subject',
     r.projection_version = $version,
     r.rule_name = $rule_name,
     r.rule_version = $rule_version
@@ -629,6 +527,40 @@ SET r.confidence = row.confidence,
 RESET_POSSIBLY_RELATED = """
 MATCH (:ShipmentDelayEvent)-[r:POSSIBLY_RELATED_TO]->(:CustomerComplaintEvent)
 DELETE r
+""".strip()
+RESET_SUPPORTED_BY_DELAY = """
+MATCH (:DeliveryDelayComplaintEvent)-[r:SUPPORTED_BY_DELAY]->(:ShipmentDelayEvent)
+DELETE r
+""".strip()
+RESET_CLASSIFIED_AS = """
+MATCH (:CustomerComplaintEvent)-[r:CLASSIFIED_AS]->() DELETE r
+""".strip()
+RESET_DELIVERY_EVENT_ABOUT_PRODUCT = """
+MATCH (:DeliveryDelayComplaintEvent)-[r:ABOUT_PRODUCT]->(:Product) DELETE r
+""".strip()
+RESET_DELIVERY_EVENT_ABOUT_ORDER = """
+MATCH (:DeliveryDelayComplaintEvent)-[r:ABOUT_ORDER]->(:Order) DELETE r
+""".strip()
+RESET_DELIVERY_EVENT_RAISED_BY = """
+MATCH (:DeliveryDelayComplaintEvent)-[r:RAISED_BY]->(:Customer) DELETE r
+""".strip()
+RESET_PACKAGING_EVENT_ABOUT_PRODUCT = """
+MATCH (:PackagingQualityComplaintEvent)-[r:ABOUT_PRODUCT]->(:Product) DELETE r
+""".strip()
+RESET_PACKAGING_EVENT_ABOUT_ORDER = """
+MATCH (:PackagingQualityComplaintEvent)-[r:ABOUT_ORDER]->(:Order) DELETE r
+""".strip()
+RESET_PACKAGING_EVENT_RAISED_BY = """
+MATCH (:PackagingQualityComplaintEvent)-[r:RAISED_BY]->(:Customer) DELETE r
+""".strip()
+RESET_PRODUCT_QUALITY_EVENT_ABOUT_PRODUCT = """
+MATCH (:ProductQualityComplaintEvent)-[r:ABOUT_PRODUCT]->(:Product) DELETE r
+""".strip()
+RESET_PRODUCT_QUALITY_EVENT_ABOUT_ORDER = """
+MATCH (:ProductQualityComplaintEvent)-[r:ABOUT_ORDER]->(:Order) DELETE r
+""".strip()
+RESET_PRODUCT_QUALITY_EVENT_RAISED_BY = """
+MATCH (:ProductQualityComplaintEvent)-[r:RAISED_BY]->(:Customer) DELETE r
 """.strip()
 RESET_ABOUT_PRODUCT = """
 MATCH (:CustomerComplaintEvent)-[r:ABOUT_PRODUCT]->(:Product) DELETE r
@@ -646,6 +578,15 @@ RESET_FULFILLED_BY = "MATCH (:Order)-[r:FULFILLED_BY]->(:Shipment) DELETE r"
 RESET_CONTAINS = "MATCH (:Order)-[r:CONTAINS]->(:Product) DELETE r"
 RESET_PLACED = "MATCH (:Customer)-[r:PLACED]->(:Order) DELETE r"
 RESET_SUPPLIES = "MATCH (:Supplier)-[r:SUPPLIES]->(:Product) DELETE r"
+RESET_DELIVERY_DELAY_COMPLAINT_EVENTS = """
+MATCH (n:DeliveryDelayComplaintEvent) DELETE n
+""".strip()
+RESET_PACKAGING_QUALITY_COMPLAINT_EVENTS = """
+MATCH (n:PackagingQualityComplaintEvent) DELETE n
+""".strip()
+RESET_PRODUCT_QUALITY_COMPLAINT_EVENTS = """
+MATCH (n:ProductQualityComplaintEvent) DELETE n
+""".strip()
 RESET_COMPLAINT_EVENTS = "MATCH (n:CustomerComplaintEvent) DELETE n"
 RESET_DELAY_EVENTS = "MATCH (n:ShipmentDelayEvent) DELETE n"
 RESET_SHIPMENTS = "MATCH (n:Shipment) DELETE n"
@@ -668,7 +609,11 @@ class ProjectionSummary:
     fulfilled_by_relationships: int
     shipment_delay_events: int
     customer_complaint_events: int
-    possibly_related_relationships: int
+    delivery_delay_complaint_events: int
+    packaging_quality_complaint_events: int
+    product_quality_complaint_events: int
+    classified_as_relationships: int
+    supported_by_delay_relationships: int
 
 
 def _fetch_rows(settings: Settings, sql: str) -> list[dict[str, Any]]:
@@ -682,27 +627,33 @@ def _fetch_rows(settings: Settings, sql: str) -> list[dict[str, Any]]:
             ]
 
 
-def _fetch_rows_with_params(
-    settings: Settings,
-    sql: str,
-    params: tuple[Any, ...],
-) -> list[dict[str, Any]]:
-    with psycopg.connect(settings.postgres_dsn) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            columns = [desc.name for desc in cur.description or []]
-            return [
-                dict(zip(columns, row, strict=True))
-                for row in cur.fetchall()
-            ]
-
-
 def _projection_params(rule_name: str) -> dict[str, str]:
     return {
         "version": PROJECTION_VERSION,
         "rule_name": rule_name,
         "rule_version": "v1",
     }
+
+
+def _complaint_rows(settings: Settings) -> list[dict[str, Any]]:
+    rows = _fetch_rows(settings, COMPLAINTS_SQL)
+    enriched_rows = []
+    for row in rows:
+        issue = complaint_issue_type_for_subject(row.get("subject"))
+        enriched_rows.append(
+            {
+                **row,
+                "issue_type": issue.issue_type if issue else None,
+            }
+        )
+    return enriched_rows
+
+
+def _rows_for_issue(
+    rows: list[dict[str, Any]],
+    issue: ComplaintIssueType,
+) -> list[dict[str, Any]]:
+    return [row for row in rows if row.get("issue_type") == issue.issue_type]
 
 
 def _chunks(rows: list[dict[str, Any]], size: int = BATCH_SIZE) -> Iterable[list[dict]]:
@@ -810,8 +761,12 @@ def derive_shipment_delay_events(driver: Driver, settings: Settings) -> int:
     return len(rows)
 
 
-def derive_customer_complaint_events(driver: Driver, settings: Settings) -> int:
-    rows = _fetch_rows(settings, COMPLAINTS_SQL)
+def derive_customer_complaint_events(
+    driver: Driver,
+    settings: Settings,
+    rows: list[dict[str, Any]] | None = None,
+) -> int:
+    rows = _complaint_rows(settings) if rows is None else rows
     _run_batches(
         driver,
         CUSTOMER_COMPLAINT_EVENT_MERGE_BATCH,
@@ -839,42 +794,119 @@ def derive_customer_complaint_events(driver: Driver, settings: Settings) -> int:
     return len(rows)
 
 
-def derive_plausible_delay_complaint_links(
+def derive_complaint_issue_events(
     driver: Driver,
     settings: Settings,
-) -> int:
-    rows = _fetch_rows_with_params(
-        settings,
-        PLAUSIBLE_LINKS_SQL,
-        (PLAUSIBLE_LINK_TIME_WINDOW_DAYS,),
-    )
-    rows = [
-        {
-            **row,
-            "confidence": PLAUSIBLE_LINK_CONFIDENCE,
-            "matching_reason": "same_order_delay_keyword_after_delivery",
-            "time_window_days": PLAUSIBLE_LINK_TIME_WINDOW_DAYS,
-            "evidence": [
-                f"erp_core.shipments:{row['shipment_id']}",
-                "erp_docs.customer_communications:"
-                f"{row['communication_id']}",
-            ],
-            "source_pk": f"{row['shipment_id']}:{row['communication_id']}",
-        }
-        for row in rows
-    ]
-    _run_batches(
-        driver,
-        POSSIBLY_RELATED_MERGE_BATCH,
-        rows,
-        POSSIBLY_RELATED_RULE_NAME,
-    )
-    return len(rows)
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    rows = _complaint_rows(settings) if rows is None else rows
+    counts = {
+        "delivery_delay_complaint_events": 0,
+        "packaging_quality_complaint_events": 0,
+        "product_quality_complaint_events": 0,
+        "classified_as_relationships": 0,
+        "supported_by_delay_relationships": 0,
+    }
+
+    for issue in COMPLAINT_ISSUE_TYPES:
+        issue_rows = _rows_for_issue(rows, issue)
+        if issue == DELIVERY_DELAY:
+            _run_batches(
+                driver,
+                DELIVERY_DELAY_EVENT_MERGE_BATCH,
+                issue_rows,
+                issue.rule_name,
+            )
+        else:
+            _run_batches(
+                driver,
+                issue_event_merge_batch(issue.event_label),
+                issue_rows,
+                issue.rule_name,
+            )
+        _run_batches(
+            driver,
+            issue_event_classified_as_batch(issue.event_label),
+            issue_rows,
+            CLASSIFIED_AS_RULE_NAME,
+        )
+        _run_batches(
+            driver,
+            issue_event_raised_by_batch(issue.event_label),
+            issue_rows,
+            issue.rule_name,
+        )
+        _run_batches(
+            driver,
+            issue_event_about_order_batch(issue.event_label),
+            [row for row in issue_rows if row["order_id"] is not None],
+            issue.rule_name,
+        )
+        _run_batches(
+            driver,
+            issue_event_about_product_batch(issue.event_label),
+            [row for row in issue_rows if row["product_id"] is not None],
+            issue.rule_name,
+        )
+
+        if issue == DELIVERY_DELAY:
+            _run_batches(
+                driver,
+                DELIVERY_SUPPORTED_BY_DELAY_BATCH,
+                issue_rows,
+                SUPPORTED_BY_DELAY_RULE_NAME,
+            )
+            counts["supported_by_delay_relationships"] += _count_graph_elements(
+                driver,
+                """
+                MATCH (:DeliveryDelayComplaintEvent)-[r:SUPPORTED_BY_DELAY]
+                      ->(:ShipmentDelayEvent)
+                RETURN count(r) AS count
+                """,
+            )
+
+        label_count = _count_graph_elements(
+            driver,
+            f"MATCH (n:{issue.event_label}) RETURN count(n) AS count",
+        )
+        classified_count = _count_graph_elements(
+            driver,
+            f"""
+            MATCH (:CustomerComplaintEvent)-[r:CLASSIFIED_AS]
+                  ->(:{issue.event_label})
+            RETURN count(r) AS count
+            """,
+        )
+        counts[f"{issue.issue_type}_complaint_events"] = label_count
+        counts["classified_as_relationships"] += classified_count
+
+    return counts
+
+
+def remove_obsolete_plausible_links(driver: Driver) -> None:
+    with driver.session() as session:
+        session.run(RESET_POSSIBLY_RELATED).consume()
+
+
+def _count_graph_elements(driver: Driver, cypher: str) -> int:
+    with driver.session() as session:
+        return int(session.run(cypher.strip()).single()["count"])
 
 
 def reset_projection(driver: Driver) -> None:
     reset_queries = [
         RESET_POSSIBLY_RELATED,
+        RESET_SUPPORTED_BY_DELAY,
+        RESET_CLASSIFIED_AS,
+        RESET_DELIVERY_EVENT_ABOUT_PRODUCT,
+        RESET_DELIVERY_EVENT_ABOUT_ORDER,
+        RESET_DELIVERY_EVENT_RAISED_BY,
+        RESET_PACKAGING_EVENT_ABOUT_PRODUCT,
+        RESET_PACKAGING_EVENT_ABOUT_ORDER,
+        RESET_PACKAGING_EVENT_RAISED_BY,
+        RESET_PRODUCT_QUALITY_EVENT_ABOUT_PRODUCT,
+        RESET_PRODUCT_QUALITY_EVENT_ABOUT_ORDER,
+        RESET_PRODUCT_QUALITY_EVENT_RAISED_BY,
         RESET_ABOUT_PRODUCT,
         RESET_ABOUT_ORDER,
         RESET_RAISED_BY,
@@ -883,6 +915,9 @@ def reset_projection(driver: Driver) -> None:
         RESET_CONTAINS,
         RESET_PLACED,
         RESET_SUPPLIES,
+        RESET_DELIVERY_DELAY_COMPLAINT_EVENTS,
+        RESET_PACKAGING_QUALITY_COMPLAINT_EVENTS,
+        RESET_PRODUCT_QUALITY_COMPLAINT_EVENTS,
         RESET_COMPLAINT_EVENTS,
         RESET_DELAY_EVENTS,
         RESET_SHIPMENTS,
@@ -903,6 +938,7 @@ def project_all(
     settings = settings or get_settings()
     with neo4j_driver(settings) as driver:
         ensure_graph_schema(driver)
+        remove_obsolete_plausible_links(driver)
         if reset:
             reset_projection(driver)
         suppliers = project_suppliers(driver, settings)
@@ -918,13 +954,18 @@ def project_all(
             settings,
         )
         shipment_delay_events = derive_shipment_delay_events(driver, settings)
+        # Fetch complaint rows once and reuse for both complaint derivers to
+        # avoid a redundant PostgreSQL round-trip and issue-type mapping pass.
+        complaint_rows = _complaint_rows(settings)
         customer_complaint_events = derive_customer_complaint_events(
             driver,
             settings,
+            rows=complaint_rows,
         )
-        possibly_related_relationships = derive_plausible_delay_complaint_links(
+        issue_event_counts = derive_complaint_issue_events(
             driver,
             settings,
+            rows=complaint_rows,
         )
     return ProjectionSummary(
         suppliers=suppliers,
@@ -938,7 +979,21 @@ def project_all(
         fulfilled_by_relationships=fulfilled_by_relationships,
         shipment_delay_events=shipment_delay_events,
         customer_complaint_events=customer_complaint_events,
-        possibly_related_relationships=possibly_related_relationships,
+        delivery_delay_complaint_events=issue_event_counts[
+            "delivery_delay_complaint_events"
+        ],
+        packaging_quality_complaint_events=issue_event_counts[
+            "packaging_quality_complaint_events"
+        ],
+        product_quality_complaint_events=issue_event_counts[
+            "product_quality_complaint_events"
+        ],
+        classified_as_relationships=issue_event_counts[
+            "classified_as_relationships"
+        ],
+        supported_by_delay_relationships=issue_event_counts[
+            "supported_by_delay_relationships"
+        ],
     )
 
 
@@ -966,8 +1021,15 @@ def main() -> None:
         f"{summary.fulfilled_by_relationships} FULFILLED_BY relationships, "
         f"{summary.shipment_delay_events} ShipmentDelayEvent nodes, "
         f"{summary.customer_complaint_events} CustomerComplaintEvent nodes, "
-        f"{summary.possibly_related_relationships} POSSIBLY_RELATED_TO "
-        "relationships."
+        f"{summary.delivery_delay_complaint_events} "
+        "DeliveryDelayComplaintEvent nodes, "
+        f"{summary.packaging_quality_complaint_events} "
+        "PackagingQualityComplaintEvent nodes, "
+        f"{summary.product_quality_complaint_events} "
+        "ProductQualityComplaintEvent nodes, "
+        f"{summary.classified_as_relationships} CLASSIFIED_AS relationships, "
+        f"{summary.supported_by_delay_relationships} "
+        "SUPPORTED_BY_DELAY relationships."
     )
 
 

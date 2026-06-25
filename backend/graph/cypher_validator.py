@@ -16,6 +16,9 @@ ALLOWED_LABELS = {
     "Shipment",
     "ShipmentDelayEvent",
     "CustomerComplaintEvent",
+    "DeliveryDelayComplaintEvent",
+    "PackagingQualityComplaintEvent",
+    "ProductQualityComplaintEvent",
 }
 ALLOWED_RELATIONSHIP_TYPES = {
     "SUPPLIES",
@@ -26,9 +29,14 @@ ALLOWED_RELATIONSHIP_TYPES = {
     "RAISED_BY",
     "ABOUT_ORDER",
     "ABOUT_PRODUCT",
-    "POSSIBLY_RELATED_TO",
+    "CLASSIFIED_AS",
+    "SUPPORTED_BY_DELAY",
 }
-DEFAULT_MAX_DEPTH = 6
+# `_path_depth_violations` counts the total number of relationship arrows in the
+# query (not the longest path), so multi-MATCH traversals accumulate quickly. The
+# Step 3 shipment-delay-complaint query already uses 8 arrows; keep headroom above
+# that so adding one supporting MATCH does not silently fail validation.
+DEFAULT_MAX_DEPTH = 10
 
 BLOCKED_KEYWORDS = (
     "CREATE",

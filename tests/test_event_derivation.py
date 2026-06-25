@@ -45,7 +45,10 @@ def test_event_nodes_are_not_materialized_in_postgres(live_settings):
                 where table_schema in ('erp_core', 'erp_docs')
                   and table_name in (
                     'shipment_delay_events',
-                    'customer_complaint_events'
+                    'customer_complaint_events',
+                    'delivery_delay_complaint_events',
+                    'packaging_quality_complaint_events',
+                    'product_quality_complaint_events'
                   )
                 """
             )
@@ -83,6 +86,65 @@ def test_shipment_delay_events_match_delayed_shipments(live_settings):
 
     assert actual_delay_events == expected_delay_events
     assert missing_provenance == 0
+
+
+def test_customer_complaint_events_include_issue_type_from_subject(live_settings):
+    with _driver(live_settings) as driver:
+        with driver.session() as session:
+            rows = session.run(
+                """
+                MATCH (n:CustomerComplaintEvent)
+                RETURN n.subject AS subject,
+                       n.issue_type AS issue_type,
+                       count(n) AS count
+                ORDER BY subject
+                """
+            ).data()
+
+    actual = {
+        (row["subject"], row["issue_type"]): int(row["count"])
+        for row in rows
+    }
+    assert actual[
+        ("Late delivery affected replenishment", "delivery_delay")
+    ] == 60
+    assert actual[("Packaging quality issue", "packaging_quality")] == 40
+    assert actual[
+        ("Product quality below expectation", "product_quality")
+    ] == 15
+
+
+def test_specialized_complaint_issue_events_exist(live_settings):
+    with _driver(live_settings) as driver:
+        with driver.session() as session:
+            delivery = int(
+                session.run(
+                    """
+                    MATCH (n:DeliveryDelayComplaintEvent)
+                    RETURN count(n) AS count
+                    """
+                ).single()["count"]
+            )
+            packaging = int(
+                session.run(
+                    """
+                    MATCH (n:PackagingQualityComplaintEvent)
+                    RETURN count(n) AS count
+                    """
+                ).single()["count"]
+            )
+            product_quality = int(
+                session.run(
+                    """
+                    MATCH (n:ProductQualityComplaintEvent)
+                    RETURN count(n) AS count
+                    """
+                ).single()["count"]
+            )
+
+    assert delivery == 60
+    assert packaging == 40
+    assert product_quality == 15
 
 
 def _driver(settings):

@@ -123,3 +123,35 @@ def test_cypher_validator_accepts_shipment_delay_traversal():
         "SUPPLIES",
     ]
 
+
+def test_cypher_validator_accepts_delivery_delay_complaint_traversal():
+    result = validate_cypher(
+        """
+        MATCH (:Supplier)-[:SUPPLIES]->(:Product)<-[:CONTAINS]-(:Order)
+              -[:FULFILLED_BY]->(:Shipment)-[:HAS_DELAY_EVENT]
+              ->(:ShipmentDelayEvent)<-[:SUPPORTED_BY_DELAY]
+              -(:DeliveryDelayComplaintEvent)<-[:CLASSIFIED_AS]
+              -(:CustomerComplaintEvent)
+        RETURN count(*) AS total
+        """
+    )
+
+    assert result.allowed is True
+    assert "DeliveryDelayComplaintEvent" in result.referenced_labels
+    assert "CustomerComplaintEvent" in result.referenced_labels
+    assert "CLASSIFIED_AS" in result.referenced_relationship_types
+    assert "SUPPORTED_BY_DELAY" in result.referenced_relationship_types
+
+
+def test_cypher_validator_rejects_legacy_possibly_related_relationship():
+    result = validate_cypher(
+        """
+        MATCH (:ShipmentDelayEvent)-[:POSSIBLY_RELATED_TO]
+              ->(:CustomerComplaintEvent)
+        RETURN count(*) AS total
+        """
+    )
+
+    assert result.allowed is False
+    assert "relationship_not_allowed:POSSIBLY_RELATED_TO" in result.violations
+

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository currently contains the NorthwindAI specification, not runnable application code. Treat these documents as the source of truth until implementation is scaffolded.
+This repository contains the NorthwindAI specification plus a runnable Python backend, database migrations, synthetic data tooling, Neo4j projection code, query ladder code, evaluation artifacts, and tests. Treat directives, ADRs, and glossary terms as the source of truth for current implementation work.
 
 - `Project_Idea.md`: concept, architecture, roadmap, and stack.
 - `CONTEXT.md`: domain glossary; use these terms in code, docs, tests, and comments.
@@ -28,7 +28,9 @@ Document what each command starts, tests, or validates.
 
 Prefer domain terms from `CONTEXT.md`, including `AI Agent Query`, `ERP Domain Graph`, `Operational Source of Truth`, `Knowledge Layer`, `Graph Provenance`, `Controlled Scenario`, and `Golden Query`. Avoid rejected synonyms.
 
-Use Python `snake_case` for modules, functions, and variables. Use `PascalCase` for classes and graph Event Node labels such as `ShipmentDelayEvent`. Keep SQL schemas explicit: `erp_core` for operational facts and `erp_docs` for documents and communications.
+Use Python `snake_case` for modules, functions, and variables. Use `PascalCase` for classes and graph Event Node labels such as `ShipmentDelayEvent`, `CustomerComplaintEvent`, `DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, and `ProductQualityComplaintEvent`. Keep SQL schemas explicit: `erp_core` for operational facts and `erp_docs` for documents and communications.
+
+For Phase 06 complaint issue modeling, treat `erp_docs.customer_communications.subject` as the structured source classification and map it to normalized `issue_type` values. Preserve `body` as evidence text, but do not use body keyword matching as the primary classifier.
 
 ## Testing Guidelines
 
@@ -36,7 +38,7 @@ Tests should validate observable behavior and contracts, not implementation deta
 
 1. SQL-only Top Customers.
 2. Neo4j supplier-to-product traversal.
-3. Event Node traversal.
+3. Event Node traversal with classified complaint issue events.
 4. Graph-to-Qdrant contract retrieval.
 5. Golden Query orchestration.
 
@@ -50,4 +52,4 @@ Pull requests should include the issue slice, behavior summary, test evidence, a
 
 ## Agent-Specific Instructions
 
-Build issue-by-issue from `docs/ISSUES.md`. Preserve the PostgreSQL/Neo4j/Qdrant boundary, require Graph Provenance, enforce query guardrails in code, and do not attempt the Golden Query before earlier ladder steps pass.
+Build issue-by-issue from `docs/ISSUES.md`, refined by the active phase directive in `directives/`. Preserve the PostgreSQL/Neo4j/Qdrant boundary, require Graph Provenance, enforce query guardrails in code, and do not attempt the Golden Query before earlier ladder steps pass.

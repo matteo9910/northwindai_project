@@ -64,6 +64,22 @@ _Avoid_: Late order, delay flag
 An event that represents a customer complaint captured from structured communications or document processing.
 _Avoid_: Negative sentiment only, generic feedback
 
+**Complaint Issue Type**:
+A normalized classification of a customer complaint, derived in this PoC from `erp_docs.customer_communications.subject`, such as `delivery_delay`, `packaging_quality`, or `product_quality`.
+_Avoid_: Regex match, sentiment category, free-form subject only
+
+**DeliveryDelayComplaintEvent**:
+An Event Node that represents a customer complaint classified as a delivery-delay issue and supported by a matching `ShipmentDelayEvent` for the same order and product.
+_Avoid_: Possible delay complaint, keyword delay match
+
+**PackagingQualityComplaintEvent**:
+An Event Node that represents a customer complaint classified as a packaging-quality issue.
+_Avoid_: Damaged shipment event, generic quality complaint
+
+**ProductQualityComplaintEvent**:
+An Event Node that represents a customer complaint classified as a product-quality issue.
+_Avoid_: Packaging complaint, supplier delay complaint
+
 **StockOutEvent**:
 An event that represents a product or warehouse inventory level reaching zero or a critical shortage threshold.
 _Avoid_: Low stock flag

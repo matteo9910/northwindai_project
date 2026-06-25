@@ -55,6 +55,8 @@ def test_shipment_delays_cypher_validates():
 
     assert validation.allowed is True
     assert validation.referenced_labels == [
+        "CustomerComplaintEvent",
+        "DeliveryDelayComplaintEvent",
         "Order",
         "Product",
         "Shipment",
@@ -62,10 +64,14 @@ def test_shipment_delays_cypher_validates():
         "Supplier",
     ]
     assert validation.referenced_relationship_types == [
+        "ABOUT_ORDER",
+        "ABOUT_PRODUCT",
+        "CLASSIFIED_AS",
         "CONTAINS",
         "FULFILLED_BY",
         "HAS_DELAY_EVENT",
         "SUPPLIES",
+        "SUPPORTED_BY_DELAY",
     ]
     assert validation.effective_cypher is not None
 
@@ -83,6 +89,9 @@ def test_shipment_delays_answer_deduplicates_public_rows():
             order_id=12000,
             shipment_id=501,
             delay_days=5,
+            communication_id=701,
+            issue_type="delivery_delay",
+            subject="Late delivery affected replenishment",
             expected_delivery_date="2025-12-10",
             actual_delivery_date="2025-12-15",
         )
@@ -105,12 +114,17 @@ def test_shipment_delays_answer_trace_shape():
     assert trace.generated_cypher is not None
     assert trace.metrics["neo4j"].row_count == 1
     assert trace.graph_paths[0]["event"]["label"] == "ShipmentDelayEvent"
+    assert (
+        trace.graph_paths[0]["complaint_issue_event"]["label"]
+        == "DeliveryDelayComplaintEvent"
+    )
     assert [entry.rule_name for entry in trace.provenance] == [
         "order_projection",
         "order_contains_product_projection",
-        "order_contains_product_projection",
+        "supplier_to_product_projection",
         "shipment_projection",
         "shipment_delay_event",
+        "delivery_delay_complaint_event",
     ]
 
 
@@ -121,6 +135,9 @@ def test_endpoint_returns_shipment_delays_answer_and_trace(monkeypatch):
                 order_id=12000,
                 shipment_id=501,
                 delay_days=5,
+                communication_id=701,
+                issue_type="delivery_delay",
+                subject="Late delivery affected replenishment",
                 expected_delivery_date="2025-12-10",
                 actual_delivery_date="2025-12-15",
             )
@@ -130,7 +147,14 @@ def test_endpoint_returns_shipment_delays_answer_and_trace(monkeypatch):
             generated_cypher=build_shipment_delays_cypher(),
             metrics={"neo4j": QueryMetrics(row_count=1, duration_ms=1.0)},
             validation_results=[validate_cypher(build_shipment_delays_cypher())],
-            graph_paths=[{"event": {"label": "ShipmentDelayEvent"}}],
+            graph_paths=[
+                {
+                    "event": {"label": "ShipmentDelayEvent"},
+                    "complaint_issue_event": {
+                        "label": "DeliveryDelayComplaintEvent"
+                    },
+                }
+            ],
             provenance=[
                 ProvenanceEntry(
                     source_system="postgresql",
@@ -167,7 +191,8 @@ def test_shipment_delays_matches_postgres_and_persists_trace(
 
     assert first_projection.shipment_delay_events > 0
     assert first_projection.customer_complaint_events > 0
-    assert second_projection.possibly_related_relationships >= 1
+    assert second_projection.delivery_delay_complaint_events >= 1
+    assert second_projection.supported_by_delay_relationships >= 1
     assert second_counts == first_counts
 
     response = answer_shipment_delays(settings=live_settings)
@@ -177,6 +202,9 @@ def test_shipment_delays_matches_postgres_and_persists_trace(
             item.order_id,
             item.shipment_id,
             item.delay_days,
+            item.communication_id,
+            item.issue_type,
+            item.subject,
             item.expected_delivery_date,
             item.actual_delivery_date,
         )
@@ -233,6 +261,25 @@ def _record(product_id=9, product_name="Mishi Kobe Niku"):
             "rule_version": "v1",
         },
         "delay_days": 5,
+        "communication_id": 701,
+        "complaint_properties": {
+            "communication_id": 701,
+            "subject": "Late delivery affected replenishment",
+            "issue_type": "delivery_delay",
+            "source_table": "customer_communications",
+            "source_pk": 701,
+            "rule_name": "customer_complaint_event",
+            "rule_version": "v1",
+        },
+        "issue_event_properties": {
+            "communication_id": 701,
+            "subject": "Late delivery affected replenishment",
+            "issue_type": "delivery_delay",
+            "source_table": "customer_communications",
+            "source_pk": 701,
+            "rule_name": "delivery_delay_complaint_event",
+            "rule_version": "v1",
+        },
         "event_properties": {
             "shipment_id": 501,
             "delay_days": 5,
@@ -256,19 +303,39 @@ def _tokyo_traders_delayed_shipments(settings):
                        o.order_id,
                        s.shipment_id,
                        s.delay_days,
+                       cc.communication_id,
+                       'delivery_delay' as issue_type,
+                       cc.subject,
                        s.expected_delivery_date::text,
                        s.actual_delivery_date::text
-                from erp_core.orders o
-                join erp_core.order_details od on od.order_id = o.order_id
-                join erp_core.products p on p.product_id = od.product_id
+                from erp_docs.customer_communications cc
+                join erp_core.orders o on o.order_id = cc.order_id
+                join erp_core.products p on p.product_id = cc.product_id
+                join erp_core.order_details od
+                  on od.order_id = o.order_id
+                 and od.product_id = p.product_id
                 join erp_core.shipments s on s.order_id = o.order_id
                 where p.supplier_id = 4
                   and s.delay_days > 0
-                order by s.delay_days desc, o.order_id, s.shipment_id
+                  and cc.contact_reason = 'complaint'
+                  and cc.subject = 'Late delivery affected replenishment'
+                order by s.delay_days desc,
+                         o.order_id,
+                         s.shipment_id,
+                         cc.communication_id
                 """
             )
             return [
-                (int(row[0]), int(row[1]), int(row[2]), row[3], row[4])
+                (
+                    int(row[0]),
+                    int(row[1]),
+                    int(row[2]),
+                    int(row[3]),
+                    str(row[4]),
+                    str(row[5]),
+                    row[6],
+                    row[7],
+                )
                 for row in cur.fetchall()
             ]
 
@@ -291,7 +358,10 @@ def _phase06_counts(settings):
                     "(n:Shipment)",
                     "(n:ShipmentDelayEvent)",
                     "(n:CustomerComplaintEvent)",
-                    "(:ShipmentDelayEvent)-[r:POSSIBLY_RELATED_TO]->"
-                    "(:CustomerComplaintEvent)",
+                    "(n:DeliveryDelayComplaintEvent)",
+                    "(n:PackagingQualityComplaintEvent)",
+                    "(n:ProductQualityComplaintEvent)",
+                    "(:DeliveryDelayComplaintEvent)-[r:SUPPORTED_BY_DELAY]->"
+                    "(:ShipmentDelayEvent)",
                 ]
             )

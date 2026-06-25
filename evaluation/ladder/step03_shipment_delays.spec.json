@@ -1,10 +1,10 @@
 {
-  "step": "step03_shipment_delays",
-  "question": "Which Tokyo Traders orders had delays?",
+  "step": "step03_shipment_delay_complaints",
+  "question": "Which Tokyo Traders orders had shipment delays with delay complaints?",
   "expected_route": "graph_only",
   "expected_answer": {
     "non_empty": true,
-    "entity": "delayed_order_shipment",
+    "entity": "delayed_order_shipment_with_delivery_delay_complaint",
     "ordered_by": [
       {
         "field": "delay_days",
@@ -13,18 +13,23 @@
     ],
     "deduplicate_by": [
       "order_id",
-      "shipment_id"
+      "shipment_id",
+      "communication_id"
     ],
     "required_fields": [
       "order_id",
       "shipment_id",
       "delay_days",
+      "communication_id",
+      "issue_type",
+      "subject",
       "expected_delivery_date",
       "actual_delivery_date"
     ],
+    "required_issue_type": "delivery_delay",
     "matches_postgres_readback": {
       "supplier_id": 4,
-      "condition": "shipments.delay_days > 0"
+      "condition": "shipments.delay_days > 0 and customer_communications.subject = 'Late delivery affected replenishment'"
     }
   },
   "expected_validation": {
@@ -39,13 +44,19 @@
       "Product",
       "Order",
       "Shipment",
-      "ShipmentDelayEvent"
+      "ShipmentDelayEvent",
+      "CustomerComplaintEvent",
+      "DeliveryDelayComplaintEvent"
     ],
     "required_relationship_types": [
       "SUPPLIES",
       "CONTAINS",
       "FULFILLED_BY",
-      "HAS_DELAY_EVENT"
+      "HAS_DELAY_EVENT",
+      "ABOUT_ORDER",
+      "ABOUT_PRODUCT",
+      "CLASSIFIED_AS",
+      "SUPPORTED_BY_DELAY"
     ],
     "graph_paths_populated": true,
     "provenance_required": true
@@ -58,8 +69,10 @@
     "provenance_rule_names": [
       "order_projection",
       "order_contains_product_projection",
+      "supplier_to_product_projection",
       "shipment_projection",
-      "shipment_delay_event"
+      "shipment_delay_event",
+      "delivery_delay_complaint_event"
     ]
   }
 }

@@ -29,14 +29,14 @@ These are decisions captured in ADRs and the PRD. They are the "why" that is not
 
 1. **Three-layer storage with a strict data/knowledge boundary.** Data is *born* in PostgreSQL; derived knowledge is *born* in Neo4j.
    - **PostgreSQL/Supabase = Operational Source of Truth** — raw ERP facts (dates, amounts, statuses, quantities). Split into two logical schemas: `erp_core` (transactional: customers, orders, order_details, products, suppliers, shipments, invoices, warehouses, inventory_movements, price_history, …) and `erp_docs` (documents, document_entities, customer_communications, supplier_contracts, product_specifications). The schema split is deliberate — it forces the router to reason about where data lives.
-   - **Neo4j = Knowledge Layer** — the ERP Domain Graph, instance-level (rows become concrete nodes like `Customer:ALFKI`, `Order:11077`; tables define node *types*). Event Nodes (`ShipmentDelayEvent`, `CustomerComplaintEvent`, `StockOutEvent`, `InvoiceOverdueEvent`, `ContractTermEvent`) live **only in Neo4j** and must never be materialized in PostgreSQL (ADR 0004).
+   - **Neo4j = Knowledge Layer** — the ERP Domain Graph, instance-level (rows become concrete nodes like `Customer:ALFKI`, `Order:11077`; tables define node *types*). Event Nodes (`ShipmentDelayEvent`, `CustomerComplaintEvent`, `DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, `ProductQualityComplaintEvent`, `StockOutEvent`, `InvoiceOverdueEvent`, `ContractTermEvent`) live **only in Neo4j** and must never be materialized in PostgreSQL (ADR 0004).
    - **Qdrant = Vector Store** — chunk text, embeddings, metadata, semantic retrieval. Neo4j stores *references* to documents/chunks (e.g. `vector_chunk_ids`) but **never embeddings or full chunk text** (ADR 0006).
 
 2. **Graph provenance is mandatory** (ADR 0005). Every node and relationship must carry traceable provenance metadata: `source_system`, `source_schema`, `source_table`, `source_pk`, `projection_version`, `rule_name`, `rule_version`, `confidence`, `derived_from` (not every field on every node, but every element must be traceable to its source/rule).
 
 3. **Two relationship families.** *Explicit* relationships come directly from trusted ERP links (foreign keys). *Derived* relationships come from controlled pipelines/business rules — **never raw LLM guesses**. Prefer readable multi-hop paths (`Supplier → Product → Order → Shipment → ShipmentDelayEvent`) over shortcut edges.
 
-4. **Plausible relationships, not causality** (ADR 0012). Links between events use names like `POSSIBLY_RELATED_TO` with `matching_reason`, `time_window_days`, `confidence`, `evidence` — never claim definitive cause unless evidence supports it.
+4. **Classified and supported relationships, not raw causality claims** (ADR 0012). Links between events must come from explicit evidence or controlled rules, never raw LLM guesses. In Phase 06, complaint issue nodes are linked with `CLASSIFIED_AS` from `erp_docs.customer_communications.subject`; delivery-delay complaint nodes use `SUPPORTED_BY_DELAY` only when a matching `ShipmentDelayEvent` exists for the same order/product.
 
 5. **Guardrails are enforced in code, not prompts** (ADR 0009). Generated SQL and Cypher must pass a code-level validator (e.g. `query_validator.py`) before execution:
    - SQL: `SELECT`-only; schema allowlist (`erp_core`, `erp_docs`); table allowlist; block `INSERT/UPDATE/DELETE/DROP/ALTER`; row limits.
@@ -52,6 +52,8 @@ These are decisions captured in ADRs and the PRD. They are the "why" that is not
 9. **Top Customers = ranked by net revenue** over the analysis period (ADR 0013), computed at query time — never stored manually. First ladder step: top 10 by revenue over the last 12 months.
 
 10. **Synthetic data is deterministic** (fixed seed) and must include **Controlled Scenarios** (ADR 0011): intentional positive cases, negative cases, and false-positive traps (e.g. delays toward non-top customers, complaints unrelated to delays) so the Golden Query and evaluation are meaningful — not random data hoping for interesting patterns.
+
+11. **Complaint issue classification uses structured source data in this PoC.** For Phase 06, `erp_docs.customer_communications.subject` is the simulated upstream classifier output and must be mapped to a normalized `issue_type` (`delivery_delay`, `packaging_quality`, `product_quality`). Preserve `body` as evidence text, but do not use body keyword matching as the primary classifier. `DeliveryDelayComplaintEvent` requires both a delivery-delay issue classification and matching `ShipmentDelayEvent` support for the same order/product; packaging and product-quality complaint Event Nodes are derived directly from their classified issue type.
 
 ## Intended stack (per spec, not yet scaffolded)
 

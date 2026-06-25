@@ -92,7 +92,7 @@ python -m backend.ladder.top_customers --emit-trace
 ```
 
 Prepare the Neo4j graph projection before running the graph-only Supplier ->
-Product and Shipment Delays ladder steps:
+Product and shipment-delay complaint ladder steps:
 
 ```powershell
 docker compose up -d neo4j
@@ -103,11 +103,20 @@ python -m backend.ladder.shipment_delays --emit-trace
 
 The projection command reads the current ladder scope from PostgreSQL and writes
 `Supplier`, `Product`, `Customer`, `Order`, `Shipment`, `ShipmentDelayEvent`, and
-`CustomerComplaintEvent` graph elements into Neo4j with Graph Provenance. It also
-creates the explicit relationships needed by the graph-only ladder steps and the
-`POSSIBLY_RELATED_TO` plausible relationship between shipment delays and
-complaints. Use `python -m backend.graph.projection --reset` only to clear the
-full projected graph scope supported so far before re-projecting it.
+`CustomerComplaintEvent` graph elements into Neo4j with Graph Provenance.
+Phase 06 also maps `erp_docs.customer_communications.subject` to normalized
+complaint `issue_type` values and derives classified complaint issue Event Nodes:
+`DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, and
+`ProductQualityComplaintEvent`. `DeliveryDelayComplaintEvent` is linked to
+supporting `ShipmentDelayEvent` evidence when order/product context matches.
+
+Ladder Step 3 (`shipment_delays`) answers the narrowed question "Which Tokyo
+Traders orders had shipment delays *with* a classified delivery-delay complaint?".
+The traversal inner-joins the `DeliveryDelayComplaintEvent`, so it returns only
+delayed orders that also carry a supported delivery-delay complaint, not every
+delayed shipment.
+Use `python -m backend.graph.projection --reset` only to clear the full
+projected graph scope supported so far before re-projecting it.
 
 ## Tests and Linting
 

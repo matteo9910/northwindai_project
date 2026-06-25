@@ -119,7 +119,7 @@ def test_projection_extends_customer_order_shipment_path(monkeypatch):
     assert params[5]["rule_name"] == "order_fulfilled_by_shipment_projection"
 
 
-def test_derivers_create_events_and_plausible_link_params(monkeypatch):
+def test_derivers_create_complaint_issue_events(monkeypatch):
     rows_by_sql = {
         projection.SHIPMENT_DELAYS_SQL: [
             {
@@ -137,7 +137,7 @@ def test_derivers_create_events_and_plausible_link_params(monkeypatch):
                 "product_id": 9,
                 "channel": "email",
                 "contact_reason": "complaint",
-                "subject": "Late delivery",
+                "subject": "Late delivery affected replenishment",
                 "body": "The delivery arrived late.",
                 "sentiment": "negative",
                 "occurred_at": "2025-12-16T10:00:00+00:00",
@@ -149,26 +149,30 @@ def test_derivers_create_events_and_plausible_link_params(monkeypatch):
         lambda _settings, sql: rows_by_sql[sql],
     )
     monkeypatch.setattr(
-        "backend.graph.projection._fetch_rows_with_params",
-        lambda _settings, _sql, params: [
-            {"shipment_id": 501, "communication_id": 701}
-        ],
+        "backend.graph.projection._count_graph_elements",
+        lambda _driver, cypher: 1
+        if "DeliveryDelayComplaintEvent" in cypher
+        or "CLASSIFIED_AS" in cypher
+        or "SUPPORTED_BY_DELAY" in cypher
+        else 0,
     )
     driver = FakeDriver()
 
     assert projection.derive_shipment_delay_events(driver, FakeSettings()) == 1
     assert projection.derive_customer_complaint_events(driver, FakeSettings()) == 1
-    assert projection.derive_plausible_delay_complaint_links(
+    counts = projection.derive_complaint_issue_events(
         driver,
         FakeSettings(),
-    ) == 1
+    )
 
     params = [run[1] for run in driver.session_instance.runs]
     assert params[0]["rule_name"] == "shipment_delay_event"
     assert params[1]["rule_name"] == "customer_complaint_event"
-    assert params[-1]["rule_name"] == "delay_complaint_possibly_related"
-    assert params[-1]["rows"][0]["time_window_days"] == 14
-    assert params[-1]["rows"][0]["source_pk"] == "501:701"
+    assert params[1]["rows"][0]["issue_type"] == "delivery_delay"
+    assert "DeliveryDelayComplaintEvent" in driver.session_instance.runs[5][0]
+    assert params[5]["rule_name"] == "delivery_delay_complaint_event"
+    assert counts["delivery_delay_complaint_events"] == 1
+    assert counts["supported_by_delay_relationships"] == 1
 
 
 def test_reset_projection_is_scoped():
@@ -178,6 +182,8 @@ def test_reset_projection_is_scoped():
 
     queries = [query for query, _params in driver.session_instance.runs]
     assert projection.RESET_POSSIBLY_RELATED in queries
+    assert projection.RESET_SUPPORTED_BY_DELAY in queries
+    assert projection.RESET_CLASSIFIED_AS in queries
     assert projection.RESET_SUPPLIES in queries
     assert projection.RESET_SUPPLIERS == queries[-1]
     assert all("DETACH DELETE" not in query for query in queries)
