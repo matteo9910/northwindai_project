@@ -19,6 +19,9 @@ ALLOWED_LABELS = {
     "DeliveryDelayComplaintEvent",
     "PackagingQualityComplaintEvent",
     "ProductQualityComplaintEvent",
+    "Contract",
+    "ContractTermEvent",
+    "Document",
 }
 ALLOWED_RELATIONSHIP_TYPES = {
     "SUPPLIES",
@@ -31,6 +34,9 @@ ALLOWED_RELATIONSHIP_TYPES = {
     "ABOUT_PRODUCT",
     "CLASSIFIED_AS",
     "SUPPORTED_BY_DELAY",
+    "HAS_CONTRACT",
+    "HAS_TERM",
+    "HAS_DOCUMENT",
 }
 # `_path_depth_violations` counts the total number of relationship arrows in the
 # query (not the longest path), so multi-MATCH traversals accumulate quickly. The

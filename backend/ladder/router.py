@@ -5,6 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from backend.config import Settings, get_settings
+from backend.ladder.contract_lead_times import (
+    ContractLeadTimesResponse,
+    answer_contract_lead_times,
+)
 from backend.ladder.shipment_delays import (
     ShipmentDelaysResponse,
     answer_shipment_delays,
@@ -37,3 +41,10 @@ def shipment_delays(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ShipmentDelaysResponse:
     return answer_shipment_delays(settings=settings)
+
+
+@router.get("/contract-lead-times", response_model=ContractLeadTimesResponse)
+def contract_lead_times(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ContractLeadTimesResponse:
+    return answer_contract_lead_times(settings=settings)

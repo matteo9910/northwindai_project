@@ -1,0 +1,186 @@
+{
+  "route": "graph_plus_vector",
+  "generated_sql": null,
+  "generated_cypher": "MATCH (s:Supplier {company_name: $company_name})-[:HAS_CONTRACT]->(c:Contract)\nMATCH (c)-[:HAS_TERM]->(term:ContractTermEvent {term_type: 'lead_time'})\nMATCH (c)-[:HAS_DOCUMENT]->(d:Document)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  c.contract_id AS contract_id,\n  c.contract_number AS contract_number,\n  properties(c) AS contract_properties,\n  term.lead_time_days AS lead_time_days,\n  properties(term) AS term_properties,\n  d.document_id AS document_id,\n  d.file_path AS file_path,\n  d.vector_chunk_ids AS vector_chunk_ids,\n  properties(d) AS document_properties\nORDER BY c.contract_id, d.document_id\nLIMIT 1000",
+  "graph_paths": [
+    {
+      "supplier": {
+        "supplier_id": 4,
+        "company_name": "Tokyo Traders",
+        "source_system": "postgresql",
+        "source_schema": "erp_core",
+        "source_table": "suppliers",
+        "source_pk": 4,
+        "projection_version": "v1",
+        "rule_name": "supplier_projection",
+        "rule_version": "v1"
+      },
+      "contract": {
+        "contract_id": 3,
+        "contract_number": "CT-4-2020",
+        "source_system": "postgresql",
+        "source_schema": "erp_docs",
+        "source_table": "supplier_contracts",
+        "source_pk": 3,
+        "projection_version": "v1",
+        "rule_name": "contract_projection",
+        "rule_version": "v1"
+      },
+      "contract_term_event": {
+        "label": "ContractTermEvent",
+        "term_type": "lead_time",
+        "lead_time_days": 14,
+        "source_system": "postgresql",
+        "source_schema": "erp_docs",
+        "source_table": "supplier_contracts",
+        "source_pk": 3,
+        "projection_version": "v1",
+        "rule_name": "contract_term_projection",
+        "rule_version": "v1"
+      },
+      "document": {
+        "label": "Document",
+        "document_id": 3,
+        "file_path": "data/contracts/CT-4-2020.pdf",
+        "vector_chunk_ids": [
+          "65ba1d4a-a70f-5f31-bf14-85c82f5efae4",
+          "94b87bb7-a9d4-5939-ae97-9216afc46b01"
+        ],
+        "source_system": "postgresql",
+        "source_schema": "erp_docs",
+        "source_table": "documents",
+        "source_pk": 3,
+        "projection_version": "v1",
+        "rule_name": "contract_document_reference",
+        "rule_version": "v1"
+      },
+      "relationships": [
+        {
+          "type": "HAS_CONTRACT",
+          "rule_name": "supplier_has_contract_projection"
+        },
+        {
+          "type": "HAS_TERM",
+          "rule_name": "contract_has_term_projection"
+        },
+        {
+          "type": "HAS_DOCUMENT",
+          "rule_name": "contract_has_document_projection"
+        }
+      ]
+    }
+  ],
+  "retrieved_chunks": [
+    {
+      "chunk_id": "65ba1d4a-a70f-5f31-bf14-85c82f5efae4",
+      "score": 0.68496007,
+      "chunk_index": 0,
+      "contract_id": 3,
+      "contract_number": "CT-4-2020",
+      "document_id": 3,
+      "source_path": "data/contracts/CT-4-2020.pdf",
+      "supplier_id": 4,
+      "text": "Supplier Contract CT-4-2020 This supplier agreement is entered into with Tokyo Traders. The contract status is active. Parties NorthwindAI and the supplier agree to the commercial terms stated in this generated controlled-scenario contract. Term and Validity This contract starts on 2020-01-01 and remains open-ended. The current operational status is active. Delivery Terms Tokyo Traders will prepare accepted purchase orders for dispatch through its standard replenishment lane. For planning purposes, the delivery lead time is fourteen business days from order acceptance, provided the requested items are available for export. Minimum Order Value Orders under this agreement must meet a minimum o"
+    },
+    {
+      "chunk_id": "94b87bb7-a9d4-5939-ae97-9216afc46b01",
+      "score": 0.6408354,
+      "chunk_index": 1,
+      "contract_id": 3,
+      "contract_number": "CT-4-2020",
+      "document_id": 3,
+      "source_path": "data/contracts/CT-4-2020.pdf",
+      "supplier_id": 4,
+      "text": "tems are available for export. Minimum Order Value Orders under this agreement must meet a minimum order value of 900.00 before standard fulfilment commitments apply. Pricing Pricing is governed by the active ERP price list unless a separately approved promotion applies. Termination Either party may terminate this agreement with written notice when material service obligations are repeatedly missed. Controlled Scenario PDF - CT-4-2020"
+    }
+  ],
+  "documents_used": [
+    {
+      "document_id": 3,
+      "file_path": "data/contracts/CT-4-2020.pdf",
+      "vector_chunk_ids": [
+        "65ba1d4a-a70f-5f31-bf14-85c82f5efae4",
+        "94b87bb7-a9d4-5939-ae97-9216afc46b01"
+      ]
+    }
+  ],
+  "metrics": {
+    "neo4j": {
+      "row_count": 1,
+      "duration_ms": 9.68
+    },
+    "qdrant": {
+      "row_count": 2,
+      "duration_ms": 889.31
+    }
+  },
+  "validation_results": [
+    {
+      "dialect": "cypher",
+      "allowed": true,
+      "statement_type": "READ",
+      "referenced_labels": [
+        "Contract",
+        "ContractTermEvent",
+        "Document",
+        "Supplier"
+      ],
+      "referenced_relationship_types": [
+        "HAS_CONTRACT",
+        "HAS_DOCUMENT",
+        "HAS_TERM"
+      ],
+      "violations": [],
+      "effective_cypher": "MATCH (s:Supplier {company_name: $company_name})-[:HAS_CONTRACT]->(c:Contract)\nMATCH (c)-[:HAS_TERM]->(term:ContractTermEvent {term_type: 'lead_time'})\nMATCH (c)-[:HAS_DOCUMENT]->(d:Document)\nRETURN\n  s.supplier_id AS supplier_id,\n  s.company_name AS supplier_name,\n  properties(s) AS supplier_properties,\n  c.contract_id AS contract_id,\n  c.contract_number AS contract_number,\n  properties(c) AS contract_properties,\n  term.lead_time_days AS lead_time_days,\n  properties(term) AS term_properties,\n  d.document_id AS document_id,\n  d.file_path AS file_path,\n  d.vector_chunk_ids AS vector_chunk_ids,\n  properties(d) AS document_properties\nORDER BY c.contract_id, d.document_id\nLIMIT 1000"
+    },
+    {
+      "dialect": "vector",
+      "allowed": true,
+      "collection_name": "contract_chunks",
+      "top_k": 3,
+      "filters": {
+        "supplier_id": 4,
+        "document_id": 3
+      },
+      "violations": []
+    }
+  ],
+  "provenance": [
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_docs",
+      "source_table": "supplier_contracts",
+      "source_columns": [
+        "contract_id",
+        "supplier_id",
+        "contract_number",
+        "lead_time_days"
+      ],
+      "rule_name": "contract_projection",
+      "rule_version": "v1"
+    },
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_docs",
+      "source_table": "supplier_contracts",
+      "source_columns": [
+        "contract_id",
+        "lead_time_days"
+      ],
+      "rule_name": "contract_term_projection",
+      "rule_version": "v1"
+    },
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_docs",
+      "source_table": "documents",
+      "source_columns": [
+        "document_id",
+        "file_path",
+        "metadata"
+      ],
+      "rule_name": "contract_document_reference",
+      "rule_version": "v1"
+    }
+  ]
+}

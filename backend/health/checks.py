@@ -65,6 +65,7 @@ def check_qdrant(settings: Settings) -> ServiceHealth:
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key or None,
             timeout=3,
+            check_compatibility=False,
         )
         client.get_collections()
     except Exception as exc:

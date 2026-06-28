@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 import psycopg
@@ -32,6 +33,12 @@ SHIPMENT_DELAY_RULE_NAME = "shipment_delay_event"
 CUSTOMER_COMPLAINT_RULE_NAME = "customer_complaint_event"
 CLASSIFIED_AS_RULE_NAME = "complaint_classified_as_issue"
 SUPPORTED_BY_DELAY_RULE_NAME = "delivery_complaint_supported_by_delay"
+CONTRACT_RULE_NAME = "contract_projection"
+HAS_CONTRACT_RULE_NAME = "supplier_has_contract_projection"
+CONTRACT_TERM_RULE_NAME = "contract_term_projection"
+HAS_TERM_RULE_NAME = "contract_has_term_projection"
+CONTRACT_DOCUMENT_RULE_NAME = "contract_document_reference"
+HAS_DOCUMENT_RULE_NAME = "contract_has_document_projection"
 
 GRAPH_CONSTRAINTS = [
     """
@@ -73,6 +80,18 @@ GRAPH_CONSTRAINTS = [
     """
     CREATE CONSTRAINT product_quality_complaint_event_id_unique IF NOT EXISTS
     FOR (n:ProductQualityComplaintEvent) REQUIRE n.communication_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT contract_id_unique IF NOT EXISTS
+    FOR (n:Contract) REQUIRE n.contract_id IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT contract_term_key_unique IF NOT EXISTS
+    FOR (n:ContractTermEvent) REQUIRE n.term_key IS UNIQUE
+    """,
+    """
+    CREATE CONSTRAINT document_id_unique IF NOT EXISTS
+    FOR (n:Document) REQUIRE n.document_id IS UNIQUE
     """,
 ]
 
@@ -150,6 +169,33 @@ select communication_id,
 from erp_docs.customer_communications
 where contact_reason = 'complaint'
 order by communication_id
+""".strip()
+
+CONTRACTS_SQL = """
+select contract_id,
+       supplier_id,
+       contract_number,
+       lead_time_days,
+       start_date,
+       end_date,
+       minimum_order_value,
+       status
+from erp_docs.supplier_contracts
+order by contract_id
+""".strip()
+
+CONTRACT_DOCUMENTS_SQL = """
+select document_id,
+       doc_type,
+       title,
+       supplier_id,
+       file_path,
+       status,
+       metadata->>'contract_number' as contract_number,
+       (metadata->>'lead_time_days')::integer as lead_time_days
+from erp_docs.documents
+where doc_type = 'supplier_contract'
+order by document_id
 """.strip()
 
 SUPPLIER_MERGE_BATCH = """
@@ -524,9 +570,115 @@ SET r.source_system = 'postgresql',
     r.rule_version = $rule_version
 """.strip()
 
+CONTRACT_MERGE_BATCH = """
+UNWIND $rows AS row
+MERGE (c:Contract {contract_id: row.contract_id})
+SET c.supplier_id = row.supplier_id,
+    c.contract_number = row.contract_number,
+    c.status = row.status,
+    c.start_date = row.start_date,
+    c.end_date = row.end_date,
+    c.source_system = 'postgresql',
+    c.source_schema = 'erp_docs',
+    c.source_table = 'supplier_contracts',
+    c.source_pk = row.contract_id,
+    c.projection_version = $version,
+    c.rule_name = $rule_name,
+    c.rule_version = $rule_version
+""".strip()
+
+HAS_CONTRACT_MERGE_BATCH = """
+UNWIND $rows AS row
+MATCH (s:Supplier {supplier_id: row.supplier_id})
+MATCH (c:Contract {contract_id: row.contract_id})
+MERGE (s)-[r:HAS_CONTRACT]->(c)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'supplier_contracts',
+    r.source_pk = row.contract_id,
+    r.source_column = 'supplier_id',
+    r.projection_version = $version,
+    r.rule_name = $rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
+CONTRACT_TERM_EVENT_MERGE_BATCH = """
+UNWIND $rows AS row
+MATCH (c:Contract {contract_id: row.contract_id})
+MERGE (e:ContractTermEvent {term_key: row.term_key})
+SET e.contract_id = row.contract_id,
+    e.term_type = row.term_type,
+    e.lead_time_days = row.lead_time_days,
+    e.minimum_order_value = row.minimum_order_value,
+    e.start_date = row.start_date,
+    e.end_date = row.end_date,
+    e.status = row.status,
+    e.source_system = 'postgresql',
+    e.source_schema = 'erp_docs',
+    e.source_table = 'supplier_contracts',
+    e.source_pk = row.contract_id,
+    e.derived_from = 'erp_docs.supplier_contracts',
+    e.projection_version = $version,
+    e.rule_name = $rule_name,
+    e.rule_version = $rule_version
+MERGE (c)-[r:HAS_TERM]->(e)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'supplier_contracts',
+    r.source_pk = row.contract_id,
+    r.derived_from = 'erp_docs.supplier_contracts',
+    r.projection_version = $version,
+    r.rule_name = $has_term_rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
+CONTRACT_DOCUMENT_MERGE_BATCH = """
+UNWIND $rows AS row
+MERGE (d:Document {document_id: row.document_id})
+SET d.doc_type = row.doc_type,
+    d.title = row.title,
+    d.supplier_id = row.supplier_id,
+    d.file_path = row.file_path,
+    d.status = row.status,
+    d.contract_number = row.contract_number,
+    d.lead_time_days = row.lead_time_days,
+    d.vector_chunk_ids = coalesce(d.vector_chunk_ids, []),
+    d.source_system = 'postgresql',
+    d.source_schema = 'erp_docs',
+    d.source_table = 'documents',
+    d.source_pk = row.document_id,
+    d.projection_version = $version,
+    d.rule_name = $rule_name,
+    d.rule_version = $rule_version
+""".strip()
+
+HAS_DOCUMENT_MERGE_BATCH = """
+UNWIND $rows AS row
+MATCH (c:Contract {contract_number: row.contract_number})
+MATCH (d:Document {document_id: row.document_id})
+MERGE (c)-[r:HAS_DOCUMENT]->(d)
+SET r.source_system = 'postgresql',
+    r.source_schema = 'erp_docs',
+    r.source_table = 'documents',
+    r.source_pk = row.document_id,
+    r.derived_from = 'erp_docs.documents',
+    r.projection_version = $version,
+    r.rule_name = $rule_name,
+    r.rule_version = $rule_version
+""".strip()
+
 RESET_POSSIBLY_RELATED = """
 MATCH (:ShipmentDelayEvent)-[r:POSSIBLY_RELATED_TO]->(:CustomerComplaintEvent)
 DELETE r
+""".strip()
+RESET_HAS_DOCUMENT = """
+MATCH (:Contract)-[r:HAS_DOCUMENT]->(:Document) DELETE r
+""".strip()
+RESET_HAS_TERM = """
+MATCH (:Contract)-[r:HAS_TERM]->(:ContractTermEvent) DELETE r
+""".strip()
+RESET_HAS_CONTRACT = """
+MATCH (:Supplier)-[r:HAS_CONTRACT]->(:Contract) DELETE r
 """.strip()
 RESET_SUPPORTED_BY_DELAY = """
 MATCH (:DeliveryDelayComplaintEvent)-[r:SUPPORTED_BY_DELAY]->(:ShipmentDelayEvent)
@@ -587,6 +739,15 @@ MATCH (n:PackagingQualityComplaintEvent) DELETE n
 RESET_PRODUCT_QUALITY_COMPLAINT_EVENTS = """
 MATCH (n:ProductQualityComplaintEvent) DELETE n
 """.strip()
+RESET_CONTRACT_TERM_EVENTS = """
+MATCH (n:ContractTermEvent) DELETE n
+""".strip()
+RESET_CONTRACTS = """
+MATCH (n:Contract) DELETE n
+""".strip()
+RESET_DOCUMENTS = """
+MATCH (n:Document) DELETE n
+""".strip()
 RESET_COMPLAINT_EVENTS = "MATCH (n:CustomerComplaintEvent) DELETE n"
 RESET_DELAY_EVENTS = "MATCH (n:ShipmentDelayEvent) DELETE n"
 RESET_SHIPMENTS = "MATCH (n:Shipment) DELETE n"
@@ -614,6 +775,12 @@ class ProjectionSummary:
     product_quality_complaint_events: int
     classified_as_relationships: int
     supported_by_delay_relationships: int
+    contracts: int
+    has_contract_relationships: int
+    contract_term_events: int
+    has_term_relationships: int
+    contract_documents: int
+    has_document_relationships: int
 
 
 def _fetch_rows(settings: Settings, sql: str) -> list[dict[str, Any]]:
@@ -622,9 +789,18 @@ def _fetch_rows(settings: Settings, sql: str) -> list[dict[str, Any]]:
             cur.execute(sql)
             columns = [desc.name for desc in cur.description or []]
             return [
-                dict(zip(columns, row, strict=True))
+                {
+                    column: _projection_value(value)
+                    for column, value in zip(columns, row, strict=True)
+                }
                 for row in cur.fetchall()
             ]
+
+
+def _projection_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 def _projection_params(rule_name: str) -> dict[str, str]:
@@ -656,6 +832,51 @@ def _rows_for_issue(
     return [row for row in rows if row.get("issue_type") == issue.issue_type]
 
 
+def _contract_term_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    term_rows = []
+    for row in rows:
+        common = {
+            "contract_id": row["contract_id"],
+            "supplier_id": row["supplier_id"],
+            "contract_number": row["contract_number"],
+        }
+        term_rows.extend(
+            [
+                {
+                    **common,
+                    "term_key": f"{row['contract_id']}:lead_time",
+                    "term_type": "lead_time",
+                    "lead_time_days": row["lead_time_days"],
+                    "minimum_order_value": None,
+                    "start_date": None,
+                    "end_date": None,
+                    "status": None,
+                },
+                {
+                    **common,
+                    "term_key": f"{row['contract_id']}:minimum_order_value",
+                    "term_type": "minimum_order_value",
+                    "lead_time_days": None,
+                    "minimum_order_value": row["minimum_order_value"],
+                    "start_date": None,
+                    "end_date": None,
+                    "status": None,
+                },
+                {
+                    **common,
+                    "term_key": f"{row['contract_id']}:contract_validity",
+                    "term_type": "contract_validity",
+                    "lead_time_days": None,
+                    "minimum_order_value": None,
+                    "start_date": row["start_date"],
+                    "end_date": row["end_date"],
+                    "status": row["status"],
+                },
+            ]
+        )
+    return term_rows
+
+
 def _chunks(rows: list[dict[str, Any]], size: int = BATCH_SIZE) -> Iterable[list[dict]]:
     for index in range(0, len(rows), size):
         yield rows[index : index + size]
@@ -666,10 +887,11 @@ def _run_batches(
     cypher: str,
     rows: list[dict[str, Any]],
     rule_name: str,
+    extra_params: dict[str, Any] | None = None,
 ) -> None:
     if not rows:
         return
-    params = _projection_params(rule_name)
+    params = {**_projection_params(rule_name), **(extra_params or {})}
     with driver.session() as session:
         for batch in _chunks(rows):
             session.run(cypher, {"rows": batch, **params}).consume()
@@ -696,6 +918,25 @@ def project_products(driver: Driver, settings: Settings) -> int:
 def project_supplies(driver: Driver, settings: Settings) -> int:
     rows = _fetch_rows(settings, PRODUCTS_SQL)
     _run_batches(driver, SUPPLIES_MERGE_BATCH, rows, SUPPLIES_RULE_NAME)
+    return len(rows)
+
+
+def project_contracts(driver: Driver, settings: Settings) -> int:
+    rows = _fetch_rows(settings, CONTRACTS_SQL)
+    _run_batches(driver, CONTRACT_MERGE_BATCH, rows, CONTRACT_RULE_NAME)
+    _run_batches(driver, HAS_CONTRACT_MERGE_BATCH, rows, HAS_CONTRACT_RULE_NAME)
+    return len(rows)
+
+
+def project_contract_documents(driver: Driver, settings: Settings) -> int:
+    rows = _fetch_rows(settings, CONTRACT_DOCUMENTS_SQL)
+    _run_batches(
+        driver,
+        CONTRACT_DOCUMENT_MERGE_BATCH,
+        rows,
+        CONTRACT_DOCUMENT_RULE_NAME,
+    )
+    _run_batches(driver, HAS_DOCUMENT_MERGE_BATCH, rows, HAS_DOCUMENT_RULE_NAME)
     return len(rows)
 
 
@@ -883,6 +1124,35 @@ def derive_complaint_issue_events(
     return counts
 
 
+def derive_contract_term_events(
+    driver: Driver,
+    settings: Settings,
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    contract_rows = _fetch_rows(settings, CONTRACTS_SQL) if rows is None else rows
+    term_rows = _contract_term_rows(contract_rows)
+    _run_batches(
+        driver,
+        CONTRACT_TERM_EVENT_MERGE_BATCH,
+        term_rows,
+        CONTRACT_TERM_RULE_NAME,
+        extra_params={"has_term_rule_name": HAS_TERM_RULE_NAME},
+    )
+    return {
+        "contract_term_events": _count_graph_elements(
+            driver,
+            "MATCH (n:ContractTermEvent) RETURN count(n) AS count",
+        ),
+        "has_term_relationships": _count_graph_elements(
+            driver,
+            """
+            MATCH (:Contract)-[r:HAS_TERM]->(:ContractTermEvent)
+            RETURN count(r) AS count
+            """,
+        ),
+    }
+
+
 def remove_obsolete_plausible_links(driver: Driver) -> None:
     with driver.session() as session:
         session.run(RESET_POSSIBLY_RELATED).consume()
@@ -896,6 +1166,9 @@ def _count_graph_elements(driver: Driver, cypher: str) -> int:
 def reset_projection(driver: Driver) -> None:
     reset_queries = [
         RESET_POSSIBLY_RELATED,
+        RESET_HAS_DOCUMENT,
+        RESET_HAS_TERM,
+        RESET_HAS_CONTRACT,
         RESET_SUPPORTED_BY_DELAY,
         RESET_CLASSIFIED_AS,
         RESET_DELIVERY_EVENT_ABOUT_PRODUCT,
@@ -918,6 +1191,9 @@ def reset_projection(driver: Driver) -> None:
         RESET_DELIVERY_DELAY_COMPLAINT_EVENTS,
         RESET_PACKAGING_QUALITY_COMPLAINT_EVENTS,
         RESET_PRODUCT_QUALITY_COMPLAINT_EVENTS,
+        RESET_DOCUMENTS,
+        RESET_CONTRACT_TERM_EVENTS,
+        RESET_CONTRACTS,
         RESET_COMPLAINT_EVENTS,
         RESET_DELAY_EVENTS,
         RESET_SHIPMENTS,
@@ -942,6 +1218,7 @@ def project_all(
         if reset:
             reset_projection(driver)
         suppliers = project_suppliers(driver, settings)
+        contracts = project_contracts(driver, settings)
         products = project_products(driver, settings)
         customers = project_customers(driver, settings)
         orders = project_orders(driver, settings)
@@ -967,8 +1244,35 @@ def project_all(
             settings,
             rows=complaint_rows,
         )
+        contract_rows = _fetch_rows(settings, CONTRACTS_SQL)
+        term_event_counts = derive_contract_term_events(
+            driver,
+            settings,
+            rows=contract_rows,
+        )
+        contract_documents = project_contract_documents(driver, settings)
+        # Count the relationships that were actually written rather than reusing
+        # the source-row count: HAS_DOCUMENT matches a Contract by contract_number
+        # and may legitimately be fewer than the number of contract documents when
+        # a document has no matching contract.
+        has_contract_relationships = _count_graph_elements(
+            driver,
+            """
+            MATCH (:Supplier)-[r:HAS_CONTRACT]->(:Contract)
+            RETURN count(r) AS count
+            """,
+        )
+        has_document_relationships = _count_graph_elements(
+            driver,
+            """
+            MATCH (:Contract)-[r:HAS_DOCUMENT]->(:Document)
+            RETURN count(r) AS count
+            """,
+        )
     return ProjectionSummary(
         suppliers=suppliers,
+        contracts=contracts,
+        has_contract_relationships=has_contract_relationships,
         products=products,
         supplies_relationships=supplies_relationships,
         customers=customers,
@@ -994,6 +1298,10 @@ def project_all(
         supported_by_delay_relationships=issue_event_counts[
             "supported_by_delay_relationships"
         ],
+        contract_term_events=term_event_counts["contract_term_events"],
+        has_term_relationships=term_event_counts["has_term_relationships"],
+        contract_documents=contract_documents,
+        has_document_relationships=has_document_relationships,
     )
 
 
@@ -1011,11 +1319,15 @@ def main() -> None:
     print(
         "Projected "
         f"{summary.suppliers} suppliers, "
+        f"{summary.contracts} contracts, "
+        f"{summary.contract_documents} contract documents, "
         f"{summary.products} products, "
         f"{summary.customers} customers, "
         f"{summary.orders} orders, "
         f"{summary.shipments} shipments, "
         f"{summary.supplies_relationships} SUPPLIES relationships, "
+        f"{summary.has_contract_relationships} HAS_CONTRACT relationships, "
+        f"{summary.has_document_relationships} HAS_DOCUMENT relationships, "
         f"{summary.placed_relationships} PLACED relationships, "
         f"{summary.contains_relationships} CONTAINS relationships, "
         f"{summary.fulfilled_by_relationships} FULFILLED_BY relationships, "
@@ -1029,7 +1341,9 @@ def main() -> None:
         "ProductQualityComplaintEvent nodes, "
         f"{summary.classified_as_relationships} CLASSIFIED_AS relationships, "
         f"{summary.supported_by_delay_relationships} "
-        "SUPPORTED_BY_DELAY relationships."
+        "SUPPORTED_BY_DELAY relationships, "
+        f"{summary.contract_term_events} ContractTermEvent nodes, "
+        f"{summary.has_term_relationships} HAS_TERM relationships."
     )
 
 

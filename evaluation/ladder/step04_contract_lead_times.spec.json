@@ -1,0 +1,84 @@
+{
+  "step": "step04_contract_lead_times",
+  "question": "What do Tokyo Traders contracts say about delivery lead times?",
+  "expected_route": "graph_plus_vector",
+  "expected_answer": {
+    "non_empty": true,
+    "entity": "supplier_contract_lead_time_evidence",
+    "required_fields": [
+      "supplier_id",
+      "supplier_name",
+      "contract_id",
+      "contract_number",
+      "document_id",
+      "structured_lead_time_days",
+      "retrieved_evidence"
+    ],
+    "required_supplier": "Tokyo Traders",
+    "required_contract_number": "CT-4-2020",
+    "required_structured_lead_time_days": 14,
+    "retrieved_evidence_non_empty": true,
+    "retrieved_evidence_contains": "fourteen business days"
+  },
+  "expected_validation": {
+    "cypher": {
+      "dialect": "cypher",
+      "allowed": true,
+      "read_only": true,
+      "limit_enforced": true
+    },
+    "vector": {
+      "dialect": "vector",
+      "allowed": true,
+      "collection_name": "contract_chunks",
+      "top_k_max": 5,
+      "required_filters": [
+        "supplier_id",
+        "document_id"
+      ]
+    }
+  },
+  "expected_graph": {
+    "required_node_labels": [
+      "Supplier",
+      "Contract",
+      "ContractTermEvent",
+      "Document"
+    ],
+    "required_relationship_types": [
+      "HAS_CONTRACT",
+      "HAS_TERM",
+      "HAS_DOCUMENT"
+    ],
+    "graph_paths_populated": true,
+    "provenance_required": true
+  },
+  "expected_vector": {
+    "collection": "contract_chunks",
+    "payload_required_fields": [
+      "supplier_id",
+      "contract_id",
+      "document_id",
+      "contract_number",
+      "chunk_index",
+      "source_path",
+      "text"
+    ],
+    "neo4j_document_stores_references_only": true
+  },
+  "expected_trace": {
+    "generated_cypher_present": true,
+    "metrics_keys": [
+      "neo4j",
+      "qdrant"
+    ],
+    "retrieved_chunks_populated": true,
+    "documents_used_populated": true,
+    "sql_fields_empty": true,
+    "provenance_rule_names": [
+      "contract_projection",
+      "contract_term_projection",
+      "contract_document_reference"
+    ]
+  }
+}

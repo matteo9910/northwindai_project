@@ -55,6 +55,8 @@ These are decisions captured in ADRs and the PRD. They are the "why" that is not
 
 11. **Complaint issue classification uses structured source data in this PoC.** For Phase 06, `erp_docs.customer_communications.subject` is the simulated upstream classifier output and must be mapped to a normalized `issue_type` (`delivery_delay`, `packaging_quality`, `product_quality`). Preserve `body` as evidence text, but do not use body keyword matching as the primary classifier. `DeliveryDelayComplaintEvent` requires both a delivery-delay issue classification and matching `ShipmentDelayEvent` support for the same order/product; packaging and product-quality complaint Event Nodes are derived directly from their classified issue type.
 
+12. **Phase 07 contract retrieval is checkpointed and evidence-first.** Implement Phase 07 as two verified checkpoints: 07A proves structured `Supplier -> Contract -> ContractTermEvent` traversal before 07B adds PDFs, Qdrant, and Step 4 retrieval. `Contract` is a business entity node; `ContractTermEvent` is one atomic term node per term type with `term_key = "<contract_id>:<term_type>"`; `Document` is a reference node only and must not store full text or embeddings. Use local BGE embeddings by default (`BAAI/bge-small-en-v1.5`) and local OpenDataLoader PDF parsing for the live indexing path. Step 4 is evidence-first and deterministic: combine structured lead-time data with retrieved contract chunks; do not introduce LLM synthesis in this phase.
+
 ## Intended stack (per spec, not yet scaffolded)
 
 - **Backend/AI:** Python 3.11+, FastAPI, LangChain, LangGraph. LLMs via OpenRouter (cloud) and Hugging Face/Ollama (local).

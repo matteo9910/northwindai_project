@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository contains the NorthwindAI specification plus a runnable Python backend, database migrations, synthetic data tooling, Neo4j projection code, query ladder code, evaluation artifacts, and tests. Treat directives, ADRs, and glossary terms as the source of truth for current implementation work.
+This repository contains the NorthwindAI specification plus a runnable Python backend, database migrations, synthetic data tooling, Neo4j projection code, vector indexing code, query ladder code, evaluation artifacts, and tests. Treat directives, ADRs, and glossary terms as the source of truth for current implementation work.
 
 - `Project_Idea.md`: concept, architecture, roadmap, and stack.
 - `CONTEXT.md`: domain glossary; use these terms in code, docs, tests, and comments.
@@ -13,24 +13,30 @@ This repository contains the NorthwindAI specification plus a runnable Python ba
 
 ## Build, Test, and Development Commands
 
-There is no build system or test suite yet. When Issue 1 lands, add concrete commands here. The intended stack is Python 3.11+, FastAPI, LangGraph, PostgreSQL/Supabase, Neo4j, and Qdrant.
-
-Expected future commands should cover:
+Use Python 3.11+. Common commands:
 
 - `python -m venv .venv`: create a local Python environment.
-- `docker compose up neo4j qdrant`: start graph and vector services.
-- `uvicorn app.main:app --reload`: run the future FastAPI backend.
+- `pip install -e ".[dev]"`: install runtime and dev dependencies.
+- `docker compose up -d neo4j qdrant`: start graph and vector services.
+- `uvicorn backend.main:app --reload`: run the FastAPI backend.
+- `python -m backend.graph.projection`: project PostgreSQL data into Neo4j.
+- `python -m data_generation.contracts`: generate deterministic supplier contract PDFs.
+- `python -m data_generation.contract_documents`: set supplier contract `documents.file_path` values in PostgreSQL as a data-prep step.
+- `python -m backend.vector.indexer`: index supplier contract chunks into Qdrant and update Neo4j `Document.vector_chunk_ids`.
 - `pytest`: run automated tests.
+- `ruff check .`: run linting.
 
-Document what each command starts, tests, or validates.
+Phase 07 live PDF indexing requires Java 11+ on `PATH` for OpenDataLoader.
 
 ## Coding Style & Naming Conventions
 
 Prefer domain terms from `CONTEXT.md`, including `AI Agent Query`, `ERP Domain Graph`, `Operational Source of Truth`, `Knowledge Layer`, `Graph Provenance`, `Controlled Scenario`, and `Golden Query`. Avoid rejected synonyms.
 
-Use Python `snake_case` for modules, functions, and variables. Use `PascalCase` for classes and graph Event Node labels such as `ShipmentDelayEvent`, `CustomerComplaintEvent`, `DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, and `ProductQualityComplaintEvent`. Keep SQL schemas explicit: `erp_core` for operational facts and `erp_docs` for documents and communications.
+Use Python `snake_case` for modules, functions, and variables. Use `PascalCase` for classes and graph labels such as `ShipmentDelayEvent`, `CustomerComplaintEvent`, `DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, `ProductQualityComplaintEvent`, `Contract`, `ContractTermEvent`, and `Document`. Keep SQL schemas explicit: `erp_core` for operational facts and `erp_docs` for documents and communications.
 
 For Phase 06 complaint issue modeling, treat `erp_docs.customer_communications.subject` as the structured source classification and map it to normalized `issue_type` values. Preserve `body` as evidence text, but do not use body keyword matching as the primary classifier.
+
+For Phase 07 contract retrieval, implement and reason in two checkpoints: structured `Supplier -> Contract -> ContractTermEvent` first, then PDF/Qdrant retrieval. `Document` nodes are references only: no full text or embeddings in Neo4j. Step 4 is evidence-first and deterministic, with no LLM synthesis.
 
 ## Testing Guidelines
 

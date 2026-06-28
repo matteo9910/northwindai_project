@@ -8,9 +8,10 @@ from pydantic import BaseModel, Field
 from backend.graph.cypher_validator import CypherValidationResult
 from backend.query.executor import QueryMetrics
 from backend.query.validator import SqlValidationResult
+from backend.vector.validation import VectorValidationResult
 
 ValidationResultUnion = Annotated[
-    SqlValidationResult | CypherValidationResult,
+    SqlValidationResult | CypherValidationResult | VectorValidationResult,
     Field(discriminator="dialect"),
 ]
 

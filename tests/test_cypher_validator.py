@@ -143,6 +143,27 @@ def test_cypher_validator_accepts_delivery_delay_complaint_traversal():
     assert "SUPPORTED_BY_DELAY" in result.referenced_relationship_types
 
 
+def test_cypher_validator_accepts_contract_term_traversal():
+    result = validate_cypher(
+        """
+        MATCH (:Supplier)-[:HAS_CONTRACT]->(:Contract)-[:HAS_TERM]
+              ->(:ContractTermEvent {term_type: 'lead_time'})
+        RETURN count(*) AS total
+        """
+    )
+
+    assert result.allowed is True
+    assert result.referenced_labels == [
+        "Contract",
+        "ContractTermEvent",
+        "Supplier",
+    ]
+    assert result.referenced_relationship_types == [
+        "HAS_CONTRACT",
+        "HAS_TERM",
+    ]
+
+
 def test_cypher_validator_rejects_legacy_possibly_related_relationship():
     result = validate_cypher(
         """

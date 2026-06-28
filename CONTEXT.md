@@ -56,6 +56,14 @@ _Avoid_: Raw LLM guess, untracked inference
 A graph node that represents a meaningful business event or operational occurrence, such as a shipment delay, customer complaint, stock-out, return, or contract breach.
 _Avoid_: Shortcut edge, hidden inference
 
+**Contract**:
+A business entity node that represents a supplier contract as an agreement record in the Knowledge Layer.
+_Avoid_: Contract document chunk, ContractTermEvent, PDF only
+
+**Document Reference**:
+A graph node that represents a pointer from the Knowledge Layer to a document artifact and its vector chunk identifiers, without storing full text or embeddings.
+_Avoid_: Document text node, embedding node, chunk store
+
 **ShipmentDelayEvent**:
 An event that represents a shipment delivered later than the expected or required delivery date.
 _Avoid_: Late order, delay flag
@@ -89,5 +97,5 @@ An event that represents an unpaid invoice whose due date has passed.
 _Avoid_: Pending invoice, unpaid invoice
 
 **ContractTermEvent**:
-An event-like graph node that represents a relevant contractual term extracted from structured contract data or contract documents.
-_Avoid_: Full contract text, document chunk
+An event-like graph node that represents one specific contractual term type for a contract, such as lead time, minimum order value, or contract validity.
+_Avoid_: Full contract text, document chunk, whole contract node

@@ -11,6 +11,9 @@ PostgreSQL/Supabase, Neo4j, and Qdrant reachability.
 - Docker Desktop with Docker Compose v2
 - Git
 - A Supabase project named `northwindai`
+- Java 11+ on `PATH` for OpenDataLoader PDF parsing in Phase 07 contract
+  indexing. On Windows, Temurin 21 JRE works; after installation, restart the
+  shell or prepend its `bin` directory to `PATH`.
 
 ## Supabase Setup
 
@@ -92,23 +95,28 @@ python -m backend.ladder.top_customers --emit-trace
 ```
 
 Prepare the Neo4j graph projection before running the graph-only Supplier ->
-Product and shipment-delay complaint ladder steps:
+Product, shipment-delay complaint, and contract ladder steps:
 
 ```powershell
-docker compose up -d neo4j
+docker compose up -d neo4j qdrant
 python -m backend.graph.projection
 python -m backend.ladder.supplier_products --emit-trace
 python -m backend.ladder.shipment_delays --emit-trace
 ```
 
 The projection command reads the current ladder scope from PostgreSQL and writes
-`Supplier`, `Product`, `Customer`, `Order`, `Shipment`, `ShipmentDelayEvent`, and
-`CustomerComplaintEvent` graph elements into Neo4j with Graph Provenance.
+`Supplier`, `Product`, `Customer`, `Order`, `Shipment`, `ShipmentDelayEvent`,
+`CustomerComplaintEvent`, `Contract`, `ContractTermEvent`, and supplier-contract
+`Document` reference graph elements into Neo4j with Graph Provenance.
 Phase 06 also maps `erp_docs.customer_communications.subject` to normalized
 complaint `issue_type` values and derives classified complaint issue Event Nodes:
 `DeliveryDelayComplaintEvent`, `PackagingQualityComplaintEvent`, and
 `ProductQualityComplaintEvent`. `DeliveryDelayComplaintEvent` is linked to
 supporting `ShipmentDelayEvent` evidence when order/product context matches.
+Phase 07 derives three `ContractTermEvent` nodes per supplier contract
+(`lead_time`, `minimum_order_value`, `contract_validity`) and stores only
+document references in Neo4j. Neo4j never stores full contract text or
+embeddings.
 
 Ladder Step 3 (`shipment_delays`) answers the narrowed question "Which Tokyo
 Traders orders had shipment delays *with* a classified delivery-delay complaint?".
@@ -117,6 +125,31 @@ delayed orders that also carry a supported delivery-delay complaint, not every
 delayed shipment.
 Use `python -m backend.graph.projection --reset` only to clear the full
 projected graph scope supported so far before re-projecting it.
+
+Generate deterministic contract PDFs and prepare the document registry before
+running the graph-plus-vector contract retrieval step:
+
+```powershell
+python -m data_generation.contracts
+python -m data_generation.contract_documents
+python -m backend.graph.projection
+python -m backend.vector.indexer
+python -m backend.ladder.contract_lead_times --emit-trace
+```
+
+`data_generation.contract_documents` is the only Phase 07 data-prep step that
+updates PostgreSQL: it sets the four `erp_docs.documents.file_path` values for
+supplier contracts. The runtime API does not mutate PostgreSQL. The vector
+indexer loads the PDFs locally with OpenDataLoader, embeds chunks with the local
+BGE default model `BAAI/bge-small-en-v1.5`, upserts them into Qdrant collection
+`contract_chunks`, and updates Neo4j `Document.vector_chunk_ids`.
+
+Ladder Step 4 (`contract_lead_times`) answers "What do Tokyo Traders contracts
+say about delivery lead times?" through a `graph_plus_vector` route. Neo4j
+resolves Tokyo Traders' contract, lead-time `ContractTermEvent`, and `Document`
+scope; Qdrant retrieves the supporting contract chunks filtered by
+`supplier_id` and `document_id`. The response is evidence-first and does not use
+LLM synthesis.
 
 ## Tests and Linting
 

@@ -48,7 +48,8 @@ def test_event_nodes_are_not_materialized_in_postgres(live_settings):
                     'customer_complaint_events',
                     'delivery_delay_complaint_events',
                     'packaging_quality_complaint_events',
-                    'product_quality_complaint_events'
+                    'product_quality_complaint_events',
+                    'contract_term_events'
                   )
                 """
             )
@@ -145,6 +146,51 @@ def test_specialized_complaint_issue_events_exist(live_settings):
     assert delivery == 60
     assert packaging == 40
     assert product_quality == 15
+
+
+def test_contract_term_events_match_supplier_contracts(live_settings):
+    with psycopg.connect(live_settings.postgres_dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from erp_docs.supplier_contracts")
+            contract_count = int(cur.fetchone()[0])
+            cur.execute(
+                """
+                select contract_id
+                from erp_docs.supplier_contracts
+                where supplier_id = 4
+                """
+            )
+            tokyo_contract_id = int(cur.fetchone()[0])
+
+    with _driver(live_settings) as driver:
+        with driver.session() as session:
+            contracts = int(
+                session.run("MATCH (n:Contract) RETURN count(n) AS count").single()[
+                    "count"
+                ]
+            )
+            terms = int(
+                session.run(
+                    "MATCH (n:ContractTermEvent) RETURN count(n) AS count"
+                ).single()["count"]
+            )
+            tokyo_lead_time = session.run(
+                """
+                MATCH (:Supplier {supplier_id: 4})-[:HAS_CONTRACT]->(:Contract)
+                      -[:HAS_TERM]->(term:ContractTermEvent {term_type: 'lead_time'})
+                RETURN term.contract_id AS contract_id,
+                       term.lead_time_days AS lead_time_days,
+                       term.rule_name AS rule_name,
+                       term.source_table AS source_table
+                """
+            ).single()
+
+    assert contracts == contract_count
+    assert terms == contract_count * 3
+    assert tokyo_lead_time["contract_id"] == tokyo_contract_id
+    assert tokyo_lead_time["lead_time_days"] == 14
+    assert tokyo_lead_time["rule_name"] == "contract_term_projection"
+    assert tokyo_lead_time["source_table"] == "supplier_contracts"
 
 
 def _driver(settings):

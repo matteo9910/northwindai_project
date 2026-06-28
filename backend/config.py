@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
+    qdrant_contract_collection: str = "contract_chunks"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_dimension: int = 384
 
     openrouter_api_key: str = ""
     huggingface_api_token: str = ""
@@ -44,4 +47,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
