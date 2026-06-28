@@ -15,9 +15,15 @@ phase-level implementation decisions that refine the issue slices.
 - [docs/PRD.md](docs/PRD.md) — problem statement, 48 user stories, implementation/testing decisions, out-of-scope list.
 - [docs/ISSUES.md](docs/ISSUES.md) — the PRD broken into 13 dependency-ordered, independently-buildable slices. **Build in this order**; each issue lists `Blocked by`.
 - [CONTEXT.md](CONTEXT.md) — domain glossary. Use these exact terms (and avoid the listed `_Avoid_` synonyms) in code, comments, and docs.
-- [docs/adr/](docs/adr/) — ADRs 0001–0014 record the binding architectural decisions referenced below.
+- [docs/adr/](docs/adr/) — ADRs 0001–0018 record the binding architectural decisions referenced below. ADRs 0015–0018 define the revised milestone target: a **governed agentic assistant** (see invariant 13).
 
-When implementing, work issue-by-issue from ISSUES.md. Issue 1 (dev stack health check) is the only one with no blockers. The overarching strategy is the **progressive query ladder** (Step 1 SQL-only → Step 5 Golden Query): prove one layer at a time before composing them. Do not attempt the Golden Query first.
+The progressive query ladder (Step 1 SQL-only → Step 4 contract retrieval) is **built and remains the foundation**: prove one layer at a time before composing them. But the ladder and the Golden Query are no longer the end goal — they are now (a) the governed execution primitives the agent reuses and (b) behavioral evaluation baselines. The milestone deliverable is the **governed agentic assistant** of ADR 0015–0018, built in three phases whose directives supersede issues 10–13:
+
+- **Phase 08** — `directives/phase-08-governed-query-generation.md` (Semantic Catalog + LLM client + text-to-SQL/Cypher workers behind the validators).
+- **Phase 09** — `directives/phase-09-agentic-orchestrator.md` (Supervisor plan-execute loop, routing, dispatch, Sufficiency Check, clarification/abstention).
+- **Phase 10** — `directives/phase-10-synthesis-and-evaluation.md` (evidence-first synthesis + heterogeneous eval suite; the Golden Query becomes one case).
+
+Build in this order; each directive lists its prerequisites. Issues 1–9 (the foundation) are done.
 
 ## Project: NorthwindAI
 
@@ -57,6 +63,8 @@ These are decisions captured in ADRs and the PRD. They are the "why" that is not
 
 12. **Phase 07 contract retrieval is checkpointed and evidence-first.** Implement Phase 07 as two verified checkpoints: 07A proves structured `Supplier -> Contract -> ContractTermEvent` traversal before 07B adds PDFs, Qdrant, and Step 4 retrieval. `Contract` is a business entity node; `ContractTermEvent` is one atomic term node per term type with `term_key = "<contract_id>:<term_type>"`; `Document` is a reference node only and must not store full text or embeddings. Use local BGE embeddings by default (`BAAI/bge-small-en-v1.5`) and local OpenDataLoader PDF parsing for the live indexing path. Step 4 is evidence-first and deterministic: combine structured lead-time data with retrieved contract chunks; do not introduce LLM synthesis in this phase.
 
+13. **The milestone target is a governed agentic assistant** (ADR 0015–0018), built on everything above. A **Supervisor** (Opus 4.8) answers arbitrary *in-domain* questions — not only the Golden Query — via a bounded **plan-execute + reflection** loop: it forms an explicit Execution Plan, dispatches per-store sub-tasks to non-autonomous **Specialized Workers** (SQL on Sonnet 4.6, Cypher on Opus 4.8, vector with no generation model), grounds generation in a curated **Semantic Catalog**, runs a hybrid **Sufficiency Check** under a hard iteration cap, and synthesizes an **evidence-first** answer that abstains when evidence is insufficient and asks one **clarification** when genuinely ambiguous. The crucial property: routes and queries become **LLM-generated**, but they pass the *same* code-level validators and produce the *same* `answer_trace` as the ladder (invariants 5–7) — autonomy inside the governance rails. Models are reached via OpenRouter behind a client abstraction; `temperature` is unavailable on these models (control via prompting/`effort`); evaluation is behavioral (ADR 0018), never fixed-string.
+
 ## Intended stack (per spec, not yet scaffolded)
 
 - **Backend/AI:** Python 3.11+, FastAPI, LangChain, LangGraph. LLMs via OpenRouter (cloud) and Hugging Face/Ollama (local).
@@ -71,4 +79,4 @@ There is no test suite yet. When tests are introduced, the highest-value seam is
 
 ## Out of scope for the first milestone
 
-OCR/noisy documents, structured-vs-PDF discrepancy detection, complex invoice/delivery-note processing, the Predictive Engine, production auth/deployment hardening, and a polished frontend. Do not pull these forward.
+OCR/noisy documents, structured-vs-PDF discrepancy detection, complex invoice/delivery-note processing, the Predictive Engine, production auth/deployment hardening, and a polished frontend. For the agentic phases specifically (ADR 0015–0018): **local LLM serving** (cloud via OpenRouter only for now), **multi-turn conversation memory** (each request is independent; a reply to a clarification arrives as a new request), and **autonomous sub-agents** with their own reasoning loops (workers are focused and non-autonomous). Do not pull these forward.

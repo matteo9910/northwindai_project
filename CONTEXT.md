@@ -99,3 +99,35 @@ _Avoid_: Pending invoice, unpaid invoice
 **ContractTermEvent**:
 An event-like graph node that represents one specific contractual term type for a contract, such as lead time, minimum order value, or contract validity.
 _Avoid_: Full contract text, document chunk, whole contract node
+
+**In-domain Question**:
+A user question whose answer is contained in the project's data sources; questions outside this scope are refused or sent back for clarification rather than answered.
+_Avoid_: Any question, open chat, general knowledge query
+
+**Supervisor**:
+The single component responsible for planning and controlling how a question is answered: it forms the Execution Plan, dispatches work, runs the Sufficiency Check, and decides whether to gather more or answer.
+_Avoid_: Master agent, controller, router only
+
+**Specialized Worker**:
+A focused, non-autonomous component that generates and repairs a query for exactly one data source (the SQL, Cypher, or Vector expert), grounded in that source's slice of the Semantic Catalog.
+_Avoid_: Sub-agent, autonomous agent, tool only
+
+**Semantic Catalog**:
+The curated, per-source description of both structure and meaning — schema, glossary terms, example values, join paths, and allowlists — that grounds query generation.
+_Avoid_: Schema dump, raw introspection, prompt boilerplate
+
+**Execution Plan**:
+The explicit, inspectable set of per-source sub-tasks the Supervisor produces before any query runs.
+_Avoid_: Chain, prompt, hidden reasoning
+
+**Sufficiency Check**:
+The step where the Supervisor judges whether the evidence gathered so far answers the question or whether one more targeted step is needed, within a bounded number of iterations.
+_Avoid_: Self-critique only, blind retry, confidence score
+
+**Abstention**:
+An answer in which the agent explicitly states what it could not determine because the evidence was insufficient, instead of filling the gap with model knowledge.
+_Avoid_: Guess, fallback answer, best-effort completion
+
+**Clarification**:
+A response in which the agent returns a single targeted question for a genuinely ambiguous request instead of answering it.
+_Avoid_: Follow-up chat, confirmation prompt, re-ask

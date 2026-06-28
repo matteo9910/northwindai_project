@@ -71,6 +71,36 @@ These issues break the PRD into independently grabbable tracer-bullet slices. Th
 
 ---
 
+## Revised roadmap — governed agentic milestone (supersedes issues 10–13)
+
+Issues 1–9 are **built and remain valid** — they are the data layers, the
+projection, the Qdrant bridge, the code-level guardrails, the `answer_trace`, the
+Controlled Scenarios, and the four deterministic ladder steps. After delivering
+the ladder, the project scope was sharpened (ADR 0015–0018): the milestone target
+is a **governed agentic assistant** that answers arbitrary *in-domain* questions,
+not a hard-wired Golden Query pipeline. The ladder steps and the Golden Query are
+repurposed as **execution primitives the agent reuses** and as **evaluation
+baselines**.
+
+Issues 10–13 are therefore realized by three phase directives (build in order):
+
+| Phase | Directive | Realizes / supersedes | Theme |
+|---|---|---|---|
+| **08** | `directives/phase-08-governed-query-generation.md` | parts of 10 | Semantic Catalog + LLM client (OpenRouter, behind an abstraction) + text-to-SQL/Cypher **Specialized Workers** behind the existing validators, with bounded self-repair. The guardrails stop being dormant. |
+| **09** | `directives/phase-09-agentic-orchestrator.md` | 10, 12 | **Supervisor** plan-execute loop: routing, dispatch to workers, hybrid **Sufficiency Check** under a hard cap, **clarification**/**abstention**. The vector worker (no generation model) plugs in here. |
+| **10** | `directives/phase-10-synthesis-and-evaluation.md` | 11, 12, 13 | **Evidence-first synthesis** + the heterogeneous **evaluation suite** (behavioral specs + `answer_trace` assertions + LLM-as-judge on the prose). The Golden Query becomes one case in the suite; demo runbook. |
+
+What does **not** change: every generated SQL/Cypher/vector request still passes
+`validate_sql` / `validate_cypher` / `validate_vector_search` before execution, and
+every answer still emits the same `answer_trace` shape. Routes and queries move
+from hard-coded to LLM-generated; the governed execution path is reused verbatim.
+
+The original issue bodies below are retained for traceability of the user-story
+coverage; where they describe a fixed pipeline, the phase directives above are the
+binding implementation guidance.
+
+---
+
 ## Issue 1: Bootstrap the NorthwindAI dev stack health check
 
 ## What to build
