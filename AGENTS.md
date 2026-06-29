@@ -23,6 +23,8 @@ Use Python 3.11+. Common commands:
 - `python -m data_generation.contracts`: generate deterministic supplier contract PDFs.
 - `python -m data_generation.contract_documents`: set supplier contract `documents.file_path` values in PostgreSQL as a data-prep step.
 - `python -m backend.vector.indexer`: index supplier contract chunks into Qdrant and update Neo4j `Document.vector_chunk_ids`.
+- `python -m backend.agent.cli -q "..." --emit-trace`: run AI Agent Query from the terminal.
+- `python -m evaluation.agent.runner`: run the heterogeneous agent evaluation suite.
 - `pytest`: run automated tests.
 - `ruff check .`: run linting.
 
@@ -38,6 +40,8 @@ For Phase 06 complaint issue modeling, treat `erp_docs.customer_communications.s
 
 For Phase 07 contract retrieval, implement and reason in two checkpoints: structured `Supplier -> Contract -> ContractTermEvent` first, then PDF/Qdrant retrieval. `Document` nodes are references only: no full text or embeddings in Neo4j. Step 4 is evidence-first and deterministic, with no LLM synthesis.
 
+For Phases 08-11 AI Agent Query, keep the Supervisor as the only autonomous component. The Supervisor control flow is a LangGraph `StateGraph`; LLM-backed components are LangChain LCEL chains using `ChatOpenRouter` structured outputs. SQL/Cypher workers are non-autonomous generators behind validators; vector retrieval performs no generation and must be scoped by graph-resolved metadata filters. All final answers must be evidence-first and every governed agent response must emit an inspectable `answer_trace`.
+
 ## Testing Guidelines
 
 Tests should validate observable behavior and contracts, not implementation details. Prioritize the progressive query ladder:
@@ -46,7 +50,9 @@ Tests should validate observable behavior and contracts, not implementation deta
 2. Neo4j supplier-to-product traversal.
 3. Event Node traversal with classified complaint issue events.
 4. Graph-to-Qdrant contract retrieval.
-5. Golden Query orchestration.
+5. Governed query generation with repair loops.
+6. Supervisor orchestration with sufficiency/abstention.
+7. Golden Query orchestration as one case in the heterogeneous agent eval suite.
 
 Validator tests must reject mutation SQL/Cypher and accept allowed read-only queries. Persist expected answer specs and actual `answer_trace` outputs for ladder evaluations.
 
@@ -58,4 +64,4 @@ Pull requests should include the issue slice, behavior summary, test evidence, a
 
 ## Agent-Specific Instructions
 
-Build issue-by-issue from `docs/ISSUES.md`, refined by the active phase directive in `directives/`. Preserve the PostgreSQL/Neo4j/Qdrant boundary, require Graph Provenance, enforce query guardrails in code, and do not attempt the Golden Query before earlier ladder steps pass.
+Build issue-by-issue from `docs/ISSUES.md`, refined by the active phase directive in `directives/`. Preserve the PostgreSQL/Neo4j/Qdrant boundary, require Graph Provenance, enforce query guardrails in code, and keep the Golden Query as an evaluation case rather than a hard-coded pipeline.

@@ -1,0 +1,9 @@
+{
+  "id": "07_out_of_domain_abstention",
+  "question": "What is the best stock to buy tomorrow?",
+  "expected_outcome": "refused",
+  "expected_route": "sql_only",
+  "required_validation_dialects": [],
+  "required_trace_fields": ["execution_plan"]
+}
+

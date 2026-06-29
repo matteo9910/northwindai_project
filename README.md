@@ -1,9 +1,10 @@
 # NorthwindAI
 
-NorthwindAI is a mini-ERP GraphRAG learning project. This repository currently
-implements the Phase 01 development baseline: local service infrastructure,
-typed configuration, a FastAPI backend, and a `/health` endpoint for
-PostgreSQL/Supabase, Neo4j, and Qdrant reachability.
+NorthwindAI is a mini-ERP GraphRAG learning project. This repository now
+contains the first PoC milestone: a governed AI Agent Query backend with a
+progressive ladder, Neo4j event/contract projection, Qdrant contract retrieval,
+and a LangGraph Supervisor that can generate governed SQL/Cypher, retrieve
+contract chunks, synthesize evidence-first answers, and emit `answer_trace`.
 
 ## Prerequisites
 
@@ -14,6 +15,8 @@ PostgreSQL/Supabase, Neo4j, and Qdrant reachability.
 - Java 11+ on `PATH` for OpenDataLoader PDF parsing in Phase 07 contract
   indexing. On Windows, Temurin 21 JRE works; after installation, restart the
   shell or prepend its `bin` directory to `PATH`.
+- `OPENROUTER_API_KEY` in `.env` for live AI Agent Query planning, query
+  generation, sufficiency, synthesis, and optional eval judging.
 
 ## Supabase Setup
 
@@ -86,6 +89,16 @@ The endpoint returns `status: ok` only when PostgreSQL/Supabase, Neo4j, and
 Qdrant are all reachable. If one service is unavailable, the response is
 `status: degraded` and includes the failing service detail.
 
+Ask the governed AI Agent Query endpoint:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/agent/query `
+  -ContentType "application/json" `
+  -Body '{"question":"Who are the top customers by net revenue?"}'
+```
+
 ## Query Ladder
 
 Run the SQL-only Top Customers ladder step:
@@ -151,6 +164,45 @@ scope; Qdrant retrieves the supporting contract chunks filtered by
 `supplier_id` and `document_id`. The response is evidence-first and does not use
 LLM synthesis.
 
+## AI Agent Query
+
+Run a one-shot question from the terminal:
+
+```powershell
+python -m backend.agent.cli -q "Who are the top customers by net revenue?" --emit-trace
+```
+
+Start interactive terminal mode:
+
+```powershell
+python -m backend.agent.cli --emit-trace
+```
+
+The agent uses a LangGraph `StateGraph` Supervisor plan-execute loop. LangChain
+LCEL chains call OpenRouter through `ChatOpenRouter` with structured outputs.
+The planner selects one of the route families (`sql_only`, `graph_only`,
+`vector_only`, `graph_plus_sql`, `graph_plus_vector`,
+`sql_plus_graph_plus_vector`), dispatches non-autonomous Specialized Workers,
+runs a Sufficiency Check, and returns one of:
+`answered`, `needs_clarification`, `abstained`, or `refused`.
+
+Generated SQL and Cypher always pass the same validators used by the ladder
+before execution. Vector retrieval is always scoped by graph-resolved metadata
+filters. The trace includes the execution plan, worker results, sufficiency
+decisions, generated queries, validations, retrieved chunks, documents, metrics,
+citations, and provenance.
+
+Run the agent evaluation suite:
+
+```powershell
+python -m evaluation.agent.runner
+```
+
+The suite persists traces under `evaluation/agent/answer_traces/` and writes a
+summary to `evaluation/agent/results.json`. LLM-as-judge prose grading is
+skip-safe when `OPENROUTER_API_KEY` is unset; deterministic trace assertions
+remain available offline.
+
 ## Tests and Linting
 
 Run smoke tests:
@@ -168,8 +220,8 @@ ruff check .
 The health smoke tests monkeypatch the service checks, so they do not require
 live Supabase, Neo4j, or Qdrant services.
 
-## Phase 01 Scope
+## Milestone Runbook
 
-This phase does not create `erp_core` or `erp_docs` schemas, import Northwind
-data, build the ERP Domain Graph, create Qdrant collections, add LangGraph, or
-implement AI Agent Query behavior. Those arrive in later issue slices.
+For the end-to-end demo sequence, including data prep, graph projection, vector
+indexing, terminal questions, trace inspection, and eval execution, use
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md).

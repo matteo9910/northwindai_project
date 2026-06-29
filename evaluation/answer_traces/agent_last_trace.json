@@ -1,0 +1,162 @@
+{
+  "route": "sql_only",
+  "generated_sql": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON o.order_id = od.order_id JOIN erp_core.customers AS c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3",
+  "generated_cypher": null,
+  "execution_plan": {
+    "route": "sql_only",
+    "tasks": [
+      {
+        "task_id": "t1",
+        "target_store": "sql",
+        "sub_question": "Compute total net revenue per customer across all orders and return the top 3 customers ranked by total net revenue in descending order.",
+        "depends_on": [],
+        "top_k": 3
+      }
+    ],
+    "rationale": "The question asks for the top 3 customers by total net revenue, which is a direct aggregate over operational facts best served by SQL.",
+    "assumptions": [
+      "Net revenue is computed from order line totals (quantity * unit price net of discounts) in erp_core.",
+      "Customers are ranked descending by total net revenue."
+    ],
+    "terminal_action": null,
+    "terminal_reason": null,
+    "clarification_question": null
+  },
+  "worker_results": [
+    {
+      "task_id": "t1",
+      "target_store": "sql",
+      "status": "success",
+      "sub_question": "Compute total net revenue per customer across all orders and return the top 3 customers ranked by total net revenue in descending order.",
+      "generated_query": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON o.order_id = od.order_id JOIN erp_core.customers AS c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3",
+      "rows": [
+        {
+          "customer_id": "SAVEA",
+          "company_name": "Save-a-lot Markets",
+          "total_net_revenue": 2869734.02043521
+        },
+        {
+          "customer_id": "QUICK",
+          "company_name": "QUICK-Stop",
+          "total_net_revenue": 2789903.26380788
+        },
+        {
+          "customer_id": "QUEEN",
+          "company_name": "Queen Cozinha",
+          "total_net_revenue": 2727465.55393652
+        }
+      ],
+      "graph_paths": [],
+      "chunks": [],
+      "documents_used": [],
+      "metrics": {
+        "postgresql": {
+          "row_count": 3,
+          "duration_ms": 54.9
+        }
+      },
+      "validation_results": [
+        {
+          "dialect": "sql",
+          "allowed": true,
+          "statement_type": "SELECT",
+          "referenced_schemas": [
+            "erp_core"
+          ],
+          "referenced_tables": [
+            "erp_core.customers",
+            "erp_core.order_details",
+            "erp_core.orders"
+          ],
+          "violations": [],
+          "effective_sql": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON o.order_id = od.order_id JOIN erp_core.customers AS c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3"
+        }
+      ],
+      "attempts": [
+        {
+          "attempt_number": 1,
+          "generated_query": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders o JOIN erp_core.order_details od ON o.order_id = od.order_id JOIN erp_core.customers c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3",
+          "validation": {
+            "dialect": "sql",
+            "allowed": true,
+            "statement_type": "SELECT",
+            "referenced_schemas": [
+              "erp_core"
+            ],
+            "referenced_tables": [
+              "erp_core.customers",
+              "erp_core.order_details",
+              "erp_core.orders"
+            ],
+            "violations": [],
+            "effective_sql": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON o.order_id = od.order_id JOIN erp_core.customers AS c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3"
+          },
+          "execution_error": null,
+          "repair_prompt": null
+        }
+      ],
+      "failure_reason": null
+    }
+  ],
+  "sufficiency_decisions": [
+    {
+      "action": "answer",
+      "reason": "The SQL query executed successfully, returning the top 3 customers ranked by total net revenue in descending order with company names and computed values. The evidence directly and completely answers the question.",
+      "missing_evidence": [],
+      "clarification_question": null
+    }
+  ],
+  "graph_paths": [],
+  "retrieved_chunks": [],
+  "documents_used": [],
+  "citations": [
+    {
+      "source_type": "sql_row",
+      "source_index": 0,
+      "claim": "Save-a-lot Markets (customer_id: SAVEA) \u00e8 il primo cliente per fatturato netto totale con \u20ac 2.869.734,02."
+    },
+    {
+      "source_type": "sql_row",
+      "source_index": 1,
+      "claim": "QUICK-Stop (customer_id: QUICK) \u00e8 il secondo cliente per fatturato netto totale con \u20ac 2.789.903,26."
+    },
+    {
+      "source_type": "sql_row",
+      "source_index": 2,
+      "claim": "Queen Cozinha (customer_id: QUEEN) \u00e8 il terzo cliente per fatturato netto totale con \u20ac 2.727.465,55."
+    }
+  ],
+  "metrics": {
+    "postgresql": {
+      "row_count": 3,
+      "duration_ms": 54.9
+    }
+  },
+  "validation_results": [
+    {
+      "dialect": "sql",
+      "allowed": true,
+      "statement_type": "SELECT",
+      "referenced_schemas": [
+        "erp_core"
+      ],
+      "referenced_tables": [
+        "erp_core.customers",
+        "erp_core.order_details",
+        "erp_core.orders"
+      ],
+      "violations": [],
+      "effective_sql": "SELECT o.customer_id, c.company_name, SUM(od.unit_price * od.quantity * (1 - od.discount)) AS total_net_revenue FROM erp_core.orders AS o JOIN erp_core.order_details AS od ON o.order_id = od.order_id JOIN erp_core.customers AS c ON o.customer_id = c.customer_id GROUP BY o.customer_id, c.company_name ORDER BY total_net_revenue DESC LIMIT 3"
+    }
+  ],
+  "provenance": [
+    {
+      "source_system": "postgresql",
+      "source_schema": "erp_core/erp_docs",
+      "source_table": "generated_query_tables",
+      "source_columns": [],
+      "rule_name": "agent_sql_worker",
+      "rule_version": "v1"
+    }
+  ]
+}

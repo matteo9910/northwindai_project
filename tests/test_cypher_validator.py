@@ -176,3 +176,20 @@ def test_cypher_validator_rejects_legacy_possibly_related_relationship():
     assert result.allowed is False
     assert "relationship_not_allowed:POSSIBLY_RELATED_TO" in result.violations
 
+
+def test_cypher_validator_rejects_unknown_label_property():
+    result = validate_cypher(
+        "MATCH (s:Supplier {name: 'Tokyo Traders'}) RETURN s.supplier_id"
+    )
+
+    assert result.allowed is False
+    assert "property_not_allowed:Supplier.name" in result.violations
+
+
+def test_cypher_validator_accepts_allowed_label_property():
+    result = validate_cypher(
+        "MATCH (s:Supplier {company_name: 'Tokyo Traders'}) RETURN s.supplier_id"
+    )
+
+    assert result.allowed is True
+

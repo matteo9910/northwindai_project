@@ -1,0 +1,14 @@
+{
+  "id": "04_graph_plus_vector_contract",
+  "question": "What does the Tokyo Traders contract say about delivery lead time?",
+  "expected_outcome": "answered",
+  "expected_route": "graph_plus_vector",
+  "required_validation_dialects": ["cypher", "vector"],
+  "required_trace_fields": [
+    "generated_cypher",
+    "retrieved_chunks",
+    "documents_used",
+    "execution_plan"
+  ]
+}
+

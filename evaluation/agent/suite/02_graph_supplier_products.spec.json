@@ -1,0 +1,9 @@
+{
+  "id": "02_graph_supplier_products",
+  "question": "Which products are supplied by Tokyo Traders?",
+  "expected_outcome": "answered",
+  "expected_route": "graph_only",
+  "required_validation_dialects": ["cypher"],
+  "required_trace_fields": ["generated_cypher", "execution_plan", "graph_paths"]
+}
+

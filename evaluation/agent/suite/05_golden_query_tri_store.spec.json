@@ -1,0 +1,15 @@
+{
+  "id": "05_golden_query_tri_store",
+  "question": "Which suppliers caused delivery-delay complaints for top customers, and what contract lead-time evidence supports supplier follow-up?",
+  "expected_outcome": "answered",
+  "expected_route": "sql_plus_graph_plus_vector",
+  "required_validation_dialects": ["sql", "cypher", "vector"],
+  "required_trace_fields": [
+    "generated_sql",
+    "generated_cypher",
+    "retrieved_chunks",
+    "execution_plan"
+  ],
+  "forbidden_terms": ["caused with certainty"]
+}
+

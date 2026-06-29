@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     embedding_dimension: int = 384
 
     openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    planner_model: str = "anthropic/claude-opus-4-8"
+    sql_worker_model: str = "anthropic/claude-sonnet-4-6"
+    cypher_worker_model: str = "anthropic/claude-opus-4-8"
+    synthesis_model: str = "anthropic/claude-sonnet-4-6"
+    judge_model: str = "anthropic/claude-sonnet-4-6"
+    openrouter_reasoning_effort: str = "medium"
+    openrouter_max_tokens: int = 2048
+    max_repair_attempts: int = 2
+    max_supervisor_replans: int = 2
     huggingface_api_token: str = ""
     ollama_base_url: str = Field(default="http://localhost:11434")
 

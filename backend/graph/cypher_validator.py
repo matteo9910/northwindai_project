@@ -38,6 +38,99 @@ ALLOWED_RELATIONSHIP_TYPES = {
     "HAS_TERM",
     "HAS_DOCUMENT",
 }
+ALLOWED_PROPERTIES_BY_LABEL = {
+    "Supplier": {"supplier_id", "company_name"},
+    "Product": {"product_id", "product_name", "supplier_id"},
+    "Customer": {"customer_id", "company_name"},
+    "Order": {"order_id", "customer_id", "order_date"},
+    "Shipment": {
+        "shipment_id",
+        "order_id",
+        "expected_delivery_date",
+        "actual_delivery_date",
+        "delay_days",
+        "status",
+    },
+    "ShipmentDelayEvent": {
+        "shipment_id",
+        "expected_delivery_date",
+        "actual_delivery_date",
+        "delay_days",
+    },
+    "CustomerComplaintEvent": {
+        "communication_id",
+        "customer_id",
+        "order_id",
+        "product_id",
+        "subject",
+        "issue_type",
+        "body",
+        "sentiment",
+        "occurred_at",
+    },
+    "DeliveryDelayComplaintEvent": {
+        "communication_id",
+        "customer_id",
+        "order_id",
+        "product_id",
+        "subject",
+        "issue_type",
+        "body",
+        "sentiment",
+        "occurred_at",
+    },
+    "PackagingQualityComplaintEvent": {
+        "communication_id",
+        "customer_id",
+        "order_id",
+        "product_id",
+        "subject",
+        "issue_type",
+        "body",
+        "sentiment",
+        "occurred_at",
+    },
+    "ProductQualityComplaintEvent": {
+        "communication_id",
+        "customer_id",
+        "order_id",
+        "product_id",
+        "subject",
+        "issue_type",
+        "body",
+        "sentiment",
+        "occurred_at",
+    },
+    "Contract": {
+        "contract_id",
+        "supplier_id",
+        "contract_number",
+        "status",
+        "start_date",
+        "end_date",
+    },
+    "ContractTermEvent": {
+        "term_key",
+        "contract_id",
+        "term_type",
+        "lead_time_days",
+        "minimum_order_value",
+        "start_date",
+        "end_date",
+        "status",
+    },
+    "Document": {
+        "document_id",
+        "doc_type",
+        "title",
+        "supplier_id",
+        "file_path",
+        "status",
+        "contract_number",
+        "lead_time_days",
+        "vector_chunk_ids",
+    },
+}
 # `_path_depth_violations` counts the total number of relationship arrows in the
 # query (not the longest path), so multi-MATCH traversals accumulate quickly. The
 # Step 3 shipment-delay-complaint query already uses 8 arrows; keep headroom above
@@ -60,6 +153,11 @@ BLOCKED_KEYWORDS = (
 )
 
 LABEL_PATTERN = re.compile(r"\((?:[A-Za-z_][A-Za-z0-9_]*)?:([A-Za-z][A-Za-z0-9_]*)")
+NODE_MAP_PATTERN = re.compile(
+    r"\((?:[A-Za-z_][A-Za-z0-9_]*)?:"
+    r"(?P<label>[A-Za-z][A-Za-z0-9_]*)\s*\{(?P<body>[^}]*)\}"
+)
+PROPERTY_KEY_PATTERN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*:")
 RELATIONSHIP_PATTERN = re.compile(
     r"\[[^\]]*?:([A-Za-z][A-Za-z0-9_]*)(?:\|[A-Za-z][A-Za-z0-9_]*)*[^\]]*\]"
 )
@@ -115,6 +213,7 @@ def validate_cypher(
     referenced_relationships = _referenced_relationship_types(cypher)
 
     violations.extend(_blocked_keyword_violations(cypher))
+    violations.extend(_property_violations(cypher, policy))
     for label in sorted(referenced_labels - policy.allowed_labels):
         violations.append(f"label_not_allowed:{label}")
     disallowed_relationships = (
@@ -173,6 +272,22 @@ def _referenced_relationship_types(cypher: str) -> set[str]:
         for type_match in RELATIONSHIP_TYPES_PATTERN.finditer(rel_match.group(0)):
             rel_types.update(type_match.group(1).split("|"))
     return rel_types
+
+
+def _property_violations(cypher: str, policy: CypherPolicy) -> list[str]:
+    violations = []
+    for node_match in NODE_MAP_PATTERN.finditer(cypher):
+        label = node_match.group("label")
+        if label not in policy.allowed_labels:
+            continue
+        allowed_properties = ALLOWED_PROPERTIES_BY_LABEL.get(label)
+        if allowed_properties is None:
+            continue
+        for property_match in PROPERTY_KEY_PATTERN.finditer(node_match.group("body")):
+            property_name = property_match.group(1)
+            if property_name not in allowed_properties:
+                violations.append(f"property_not_allowed:{label}.{property_name}")
+    return violations
 
 
 def _path_depth_violations(cypher: str, max_depth: int) -> list[str]:

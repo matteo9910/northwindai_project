@@ -38,9 +38,13 @@ class AnswerTrace(BaseModel):
     route: QueryRoute
     generated_sql: str | None = None
     generated_cypher: str | None = None
+    execution_plan: dict[str, Any] | None = None
+    worker_results: list[dict[str, Any]] = Field(default_factory=list)
+    sufficiency_decisions: list[dict[str, Any]] = Field(default_factory=list)
     graph_paths: list[dict[str, Any]] = Field(default_factory=list)
     retrieved_chunks: list[dict[str, Any]] = Field(default_factory=list)
     documents_used: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, QueryMetrics] = Field(default_factory=dict)
     validation_results: list[ValidationResultUnion] = Field(default_factory=list)
     provenance: list[ProvenanceEntry] = Field(default_factory=list)

@@ -131,3 +131,14 @@ _Avoid_: Guess, fallback answer, best-effort completion
 **Clarification**:
 A response in which the agent returns a single targeted question for a genuinely ambiguous request instead of answering it.
 _Avoid_: Follow-up chat, confirmation prompt, re-ask
+
+**Evidence-First Synthesis**:
+The final answer-writing step where the agent uses only gathered SQL rows, graph
+paths, and retrieved chunks, citing trace elements and abstaining when evidence
+is insufficient.
+_Avoid_: Free-form model answer, outside knowledge, unsupported summary
+
+**Citation**:
+A reference from a final answer claim to a specific SQL row, graph path, or
+vector chunk present in `answer_trace`.
+_Avoid_: Footnote without source, model confidence, generic reference

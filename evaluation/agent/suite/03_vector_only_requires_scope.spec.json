@@ -1,0 +1,9 @@
+{
+  "id": "03_vector_only_requires_scope",
+  "question": "Search contract PDFs for delivery lead time without supplier context.",
+  "expected_outcome": "abstained",
+  "expected_route": "vector_only",
+  "required_validation_dialects": [],
+  "required_trace_fields": ["execution_plan", "worker_results"]
+}
+

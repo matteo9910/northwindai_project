@@ -1,0 +1,10 @@
+{
+  "id": "06_false_positive_packaging",
+  "question": "Show packaging quality complaints and do not classify them as delivery delay complaints.",
+  "expected_outcome": "answered",
+  "expected_route": "graph_only",
+  "required_validation_dialects": ["cypher"],
+  "required_trace_fields": ["generated_cypher", "execution_plan"],
+  "forbidden_terms": ["delivery delay caused"]
+}
+

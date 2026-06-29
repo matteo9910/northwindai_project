@@ -1,0 +1,9 @@
+{
+  "id": "01_sql_top_customers",
+  "question": "Who are the top customers by net revenue?",
+  "expected_outcome": "answered",
+  "expected_route": "sql_only",
+  "required_validation_dialects": ["sql"],
+  "required_trace_fields": ["generated_sql", "execution_plan", "worker_results"]
+}
+
