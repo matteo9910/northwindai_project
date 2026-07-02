@@ -1,10 +1,45 @@
 # NorthwindAI
 
-NorthwindAI is a mini-ERP GraphRAG learning project. This repository now
-contains the first PoC milestone: a governed AI Agent Query backend with a
-progressive ladder, Neo4j event/contract projection, Qdrant contract retrieval,
-and a LangGraph Supervisor that can generate governed SQL/Cypher, retrieve
-contract chunks, synthesize evidence-first answers, and emit `answer_trace`.
+NorthwindAI is a mini-ERP GraphRAG learning project. The milestone deliverable
+is a **governed agentic assistant**: a LangGraph Supervisor that answers
+arbitrary in-domain ERP questions across PostgreSQL, Neo4j, and Qdrant and
+returns governed, traceable answers.
+
+A **Supervisor** (Opus 4.8) runs a bounded plan-execute-reflect loop as a
+LangGraph `StateGraph`: it forms an explicit execution plan, routes the question,
+dispatches per-store sub-tasks to non-autonomous **Specialized Workers** (SQL,
+Cypher, and a vector worker with no generation model), grounds generation in a
+curated **Semantic Catalog**, runs a hybrid **Sufficiency Check** under a hard
+iteration cap, and synthesizes an **evidence-first** answer — abstaining when
+evidence is insufficient and asking one clarification when genuinely ambiguous.
+Routes and queries are LLM-generated but pass the *same* code-level validators
+and produce the *same* `answer_trace` as the underlying primitives: autonomy
+inside governance rails.
+
+Models are reached through LangChain LCEL chains over OpenRouter
+(`ChatOpenRouter`) with structured outputs. The progressive **query ladder**
+(SQL-only → contract retrieval) remains in the codebase as (a) the governed
+execution primitives — validators and executors — the agent reuses, and (b)
+behavioral evaluation baselines. It is the foundation, not the end goal.
+
+## Architecture at a glance
+
+- **Three-layer storage, strict data/knowledge boundary.** PostgreSQL/Supabase is
+  the operational source of truth (`erp_core` + `erp_docs`); Neo4j is the
+  derived knowledge graph (instance nodes + Event Nodes); Qdrant holds contract
+  chunk embeddings. Neo4j stores document/chunk *references*, never text or
+  embeddings.
+- **Governance in code, not prompts.** Generated SQL is `SELECT`-only with
+  schema/table allowlists and row caps; generated Cypher is read-only with
+  label/relationship allowlists and depth limits. Both must pass their validator
+  before execution.
+- **Everything is traceable.** Every answer carries an `answer_trace` with the
+  route, execution plan, worker results, sufficiency decisions, generated
+  queries, validations, retrieved chunks, documents, metrics, citations, and
+  provenance derived from what each query actually referenced.
+- **Workers cooperate via parameters.** A dependent sub-task receives upstream
+  identifiers as query parameters (`%(name)s` for SQL, `$name` for Cypher),
+  bounded by the validator row limit — not by inlining rows into the prompt.
 
 ## Prerequisites
 
@@ -99,7 +134,14 @@ Invoke-RestMethod `
   -Body '{"question":"Who are the top customers by net revenue?"}'
 ```
 
-## Query Ladder
+## Foundation: Query Ladder
+
+The progressive query ladder is the **foundation** the agent builds on, not a
+separate product surface. Its validators and executors are the governed
+primitives the Supervisor's workers reuse, and each step doubles as a behavioral
+evaluation baseline. The steps below also perform the one-time graph projection
+and vector indexing that the agent needs to traverse Neo4j and retrieve from
+Qdrant.
 
 Run the SQL-only Top Customers ladder step:
 
@@ -188,9 +230,12 @@ runs a Sufficiency Check, and returns one of:
 
 Generated SQL and Cypher always pass the same validators used by the ladder
 before execution. Vector retrieval is always scoped by graph-resolved metadata
-filters. The trace includes the execution plan, worker results, sufficiency
-decisions, generated queries, validations, retrieved chunks, documents, metrics,
-citations, and provenance.
+filters, and dependent sub-tasks receive upstream identifiers as bound query
+parameters rather than inlined values. The trace includes the execution plan,
+worker results, sufficiency decisions, generated queries, validations, retrieved
+chunks, documents, metrics, citations, and provenance derived from the schemas,
+tables, and labels each query actually referenced. Terminal plans (refuse or
+clarify) execute no route and carry none in the trace.
 
 Run the agent evaluation suite:
 
