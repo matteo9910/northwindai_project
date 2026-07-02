@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -101,7 +103,7 @@ class SufficiencyChecker:
 
         decision = invoke_structured(
             self.chain,
-            {"evidence_bundle": bundle.model_dump_json(indent=2)},
+            {"evidence_bundle": _sufficiency_payload(bundle)},
         )
         if decision.action == "replan" and iteration >= max_replans:
             return SufficiencyDecision(
@@ -110,6 +112,19 @@ class SufficiencyChecker:
                 missing_evidence=decision.missing_evidence,
             )
         return decision
+
+
+def _sufficiency_payload(bundle: EvidenceBundle) -> str:
+    return json.dumps(
+        {
+            "question": bundle.question,
+            "route": bundle.plan.route.value,
+            "sub_questions": [task.sub_question for task in bundle.plan.tasks],
+            "evidence": bundle.evidence_items(),
+        },
+        indent=2,
+        default=str,
+    )
 
 
 def _has_any_evidence(bundle: EvidenceBundle) -> bool:

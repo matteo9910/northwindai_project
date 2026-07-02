@@ -25,6 +25,7 @@ class QueryExecutionResult(BaseModel):
 
 def run_validated_sql(
     validation_result: ValidationResult,
+    params: dict[str, Any] | None = None,
     settings: Settings | None = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> QueryExecutionResult:
@@ -39,7 +40,7 @@ def run_validated_sql(
             cur.execute("set transaction read only")
             cur.execute(f"set local statement_timeout = {int(timeout_ms)}")
             start = time.perf_counter()
-            cur.execute(validation_result.effective_query)
+            cur.execute(validation_result.effective_query, params or None)
             column_names = [desc.name for desc in cur.description or []]
             tuple_rows = cur.fetchall()
             duration_ms = round((time.perf_counter() - start) * 1000, 2)

@@ -68,7 +68,12 @@ class CypherWorker:
         )
         return prompt | build_structured_chat_model(chat_model, GeneratedQuery)
 
-    def run(self, task_id: str, sub_question: str) -> WorkerResult:
+    def run(
+        self,
+        task_id: str,
+        sub_question: str,
+        params: dict[str, Any] | None = None,
+    ) -> WorkerResult:
         attempts: list[WorkerAttempt] = []
         repair_context = ""
         max_attempts = self.settings.max_repair_attempts + 1
@@ -90,7 +95,7 @@ class CypherWorker:
                 repair_context = _repair_context(validation.violations)
                 continue
             try:
-                execution = self.executor(validation, None, self.settings)
+                execution = self.executor(validation, params, self.settings)
             except (ServiceUnavailable, SessionExpired, AuthError) as exc:
                 # Infrastructure failure (Neo4j unreachable/timeout/auth): regenerating
                 # the query cannot fix it, so fail fast instead of burning LLM calls.
@@ -119,7 +124,10 @@ class CypherWorker:
                 sub_question=sub_question,
                 generated_query=validation.effective_cypher,
                 rows=execution.records,
-                graph_paths=execution.graph_paths or execution.records,
+                # Agent Cypher has an LLM-chosen RETURN shape, so there are no
+                # structured multi-hop paths to expose beyond the records already
+                # in `rows`; only surface graph_paths when the executor builds them.
+                graph_paths=execution.graph_paths,
                 metrics={"neo4j": execution.metrics},
                 validation_results=[validation],
                 attempts=attempts,

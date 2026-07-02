@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import operator
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -203,15 +202,11 @@ class AgentSupervisor:
         prior_results: list[WorkerResult],
     ) -> WorkerResult:
         if task.target_store == StoreTarget.SQL:
-            return self.sql_worker.run(
-                task.task_id,
-                _augment_sub_question(task, prior_results),
-            )
+            sub_question, params = _augment_sub_question(task, prior_results)
+            return self.sql_worker.run(task.task_id, sub_question, params=params)
         if task.target_store == StoreTarget.CYPHER:
-            return self.cypher_worker.run(
-                task.task_id,
-                _augment_sub_question(task, prior_results),
-            )
+            sub_question, params = _augment_sub_question(task, prior_results)
+            return self.cypher_worker.run(task.task_id, sub_question, params=params)
         if task.target_store == StoreTarget.VECTOR:
             return self.vector_worker.run(
                 task.task_id,
@@ -239,31 +234,73 @@ class AgentSupervisor:
         return (self.settings.max_supervisor_replans + 1) * 6 + 4
 
 
-_MAX_UPSTREAM_ROWS = 25
+# How to reference an upstream identifier parameter, per store dialect. The full
+# value list travels as an execution parameter (bounded by the validator's
+# DEFAULT_MAX_ROWS), never inlined into the prompt.
+_PARAM_HINTS = {
+    StoreTarget.SQL: (
+        "reference them in SQL as %(name)s, e.g. "
+        "WHERE customer_id = ANY(%(customer_id)s)"
+    ),
+    StoreTarget.CYPHER: (
+        "reference them in Cypher as $name, e.g. WHERE c.customer_id IN $customer_id"
+    ),
+}
+# Sample values shown in the prompt purely for semantic context (not the filter).
+_PARAM_SAMPLE_SIZE = 5
 
 
 def _augment_sub_question(
     task: ExecutionTask,
     prior_results: list[WorkerResult],
-) -> str:
-    """Ground a dependent sub-task with the concrete values it depends on."""
+) -> tuple[str, dict[str, list[Any]]]:
+    """Ground a dependent sub-task on the identifiers it depends on.
+
+    Returns the (possibly augmented) sub-question plus a params dict of upstream
+    identifiers. The identifiers are passed to the query as execution parameters
+    rather than inlined into the prompt, so the full set (capped only by the
+    validator row limit) reaches the database while the prompt stays light.
+    """
+    params = _collect_upstream_params(task, prior_results)
+    if not params:
+        return task.sub_question, {}
+    hint = _PARAM_HINTS.get(task.target_store, _PARAM_HINTS[StoreTarget.CYPHER])
+    lines: list[str] = []
+    for name, values in params.items():
+        sample = ", ".join(str(value) for value in values[:_PARAM_SAMPLE_SIZE])
+        extra = "" if len(values) <= _PARAM_SAMPLE_SIZE else (
+            f", … (+{len(values) - _PARAM_SAMPLE_SIZE} more)"
+        )
+        lines.append(f"- {name}: {len(values)} values [{sample}{extra}]")
+    augmented = (
+        f"{task.sub_question}\n\n"
+        "Upstream identifiers resolved from prior sub-tasks are supplied as query "
+        f"parameters (do not inline the raw values; {hint}). Available parameters:\n"
+        + "\n".join(lines)
+    )
+    return augmented, params
+
+
+def _collect_upstream_params(
+    task: ExecutionTask,
+    prior_results: list[WorkerResult],
+) -> dict[str, list[Any]]:
+    """Collect distinct identifier values from the succeeded upstream tasks."""
     if not task.depends_on:
-        return task.sub_question
-    blocks: list[str] = []
+        return {}
+    params: dict[str, list[Any]] = {}
     for result in prior_results:
         if result.task_id not in task.depends_on or not result.succeeded:
             continue
-        rows = result.rows[:_MAX_UPSTREAM_ROWS]
-        if not rows:
-            continue
-        blocks.append(
-            f"From sub-task {result.task_id} ({result.target_store}): "
-            f"{json.dumps(rows, default=str)}"
-        )
-    if not blocks:
-        return task.sub_question
-    return (
-        f"{task.sub_question}\n\nConcrete values resolved from prior sub-tasks "
-        "(use these exact values to filter; do not re-derive them):\n"
-        + "\n".join(blocks)
-    )
+        for row in result.rows:
+            for key, value in row.items():
+                if value is None or not _is_identifier_column(key):
+                    continue
+                bucket = params.setdefault(key, [])
+                if value not in bucket:
+                    bucket.append(value)
+    return params
+
+
+def _is_identifier_column(column: str) -> bool:
+    return column == "id" or column.endswith("_id")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -24,7 +25,10 @@ from backend.config import Settings, get_settings
 from backend.query.executor import QueryExecutionResult, run_validated_sql
 from backend.query.validator import SqlValidationResult, validate_sql
 
-SqlExecutor = Callable[[SqlValidationResult, Settings | None], QueryExecutionResult]
+SqlExecutor = Callable[
+    [SqlValidationResult, dict[str, Any] | None, Settings | None],
+    QueryExecutionResult,
+]
 
 
 class SqlWorker:
@@ -61,7 +65,12 @@ class SqlWorker:
         )
         return prompt | build_structured_chat_model(chat_model, GeneratedQuery)
 
-    def run(self, task_id: str, sub_question: str) -> WorkerResult:
+    def run(
+        self,
+        task_id: str,
+        sub_question: str,
+        params: dict[str, Any] | None = None,
+    ) -> WorkerResult:
         attempts: list[WorkerAttempt] = []
         repair_context = ""
         max_attempts = self.settings.max_repair_attempts + 1
@@ -83,7 +92,7 @@ class SqlWorker:
                 repair_context = _repair_context(validation.violations)
                 continue
             try:
-                execution = self.executor(validation, self.settings)
+                execution = self.executor(validation, params, self.settings)
             except PsycopgOperationalError as exc:
                 # Infrastructure failure (database unreachable/timeout): regenerating
                 # the query cannot fix it, so fail fast instead of burning LLM calls.
@@ -145,9 +154,10 @@ class SqlWorker:
 
 def _execute_sql(
     validation: SqlValidationResult,
+    params: dict[str, Any] | None,
     settings: Settings | None,
 ) -> QueryExecutionResult:
-    return run_validated_sql(validation, settings=settings)
+    return run_validated_sql(validation, params=params, settings=settings)
 
 
 def _repair_context(violations: list[str]) -> str:

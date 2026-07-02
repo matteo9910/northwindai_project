@@ -20,7 +20,7 @@ _VALID_ROUTES = {route.value for route in QueryRoute}
 
 
 class PlannerOutput(BaseModel):
-    route: str
+    route: str | None = None
     tasks: list[ExecutionTask] = Field(default_factory=list)
     rationale: str = ""
     assumptions: list[str] = Field(default_factory=list)
@@ -48,14 +48,16 @@ class Planner:
                     "system",
                     "You are the NorthwindAI Supervisor planner. Decide an "
                     "explicit ExecutionPlan for an in-domain ERP question. "
+                    "Set `route` to exactly one of the catalog's `route_families` "
+                    "that matches the stores your tasks use. "
                     "Workers are not autonomous: create precise per-store "
                     "sub-questions only. If contract PDF evidence is needed, "
                     "include a cypher task first to resolve supplier/document "
                     "filters, then a vector task depending on that graph task. "
                     "For out-of-domain questions set terminal_action='refuse' "
-                    "and no tasks. For genuinely ambiguous questions set "
-                    "terminal_action='clarify' with one targeted clarification "
-                    "question.",
+                    "with no tasks and no route. For genuinely ambiguous questions "
+                    "set terminal_action='clarify' with one targeted clarification "
+                    "question and no route.",
                 ),
                 (
                     "human",
@@ -93,11 +95,15 @@ def _parse_plan(
         return response
     if isinstance(response, PlannerOutput):
         response = response.model_dump(mode="json")
-    # Terminal plans (refuse/clarify) take no executable route; the model often
-    # echoes the terminal action into `route`. Normalize any non-family value to
-    # a harmless placeholder so the governed contract still produces a trace.
-    if response.get("route") not in _VALID_ROUTES:
-        response = {**response, "route": QueryRoute.SQL_ONLY.value}
+    response = dict(response)
+    if response.get("terminal_action") in ("clarify", "refuse"):
+        # Terminal plans (refuse/clarify) execute no route: leave it unset rather
+        # than echoing a misleading placeholder into the trace.
+        response["route"] = None
+    elif response.get("route") not in _VALID_ROUTES:
+        # Non-terminal plan with an unrecognized route: fall back to the safest
+        # executable route so the governed contract still produces a trace.
+        response["route"] = QueryRoute.SQL_ONLY.value
     try:
         return ExecutionPlan.model_validate(response)
     except ValidationError as exc:

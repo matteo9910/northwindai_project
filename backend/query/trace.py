@@ -35,7 +35,8 @@ class ProvenanceEntry(BaseModel):
 
 
 class AnswerTrace(BaseModel):
-    route: QueryRoute
+    # None for terminal agent plans (refuse/clarify) that execute no route.
+    route: QueryRoute | None = None
     generated_sql: str | None = None
     generated_cypher: str | None = None
     execution_plan: dict[str, Any] | None = None

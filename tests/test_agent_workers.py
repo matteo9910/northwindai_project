@@ -38,7 +38,11 @@ def test_sql_worker_repairs_generated_mutation_and_executes():
         ]
     )
 
-    def execute(validation: SqlValidationResult, settings: Settings | None):
+    def execute(
+        validation: SqlValidationResult,
+        params: dict[str, Any] | None,
+        settings: Settings | None,
+    ):
         assert validation.allowed
         return QueryExecutionResult(
             columns=["order_id"],
@@ -74,7 +78,11 @@ def test_sql_worker_fails_fast_on_infrastructure_error():
         [{"query": "select order_id from erp_core.orders limit 1"}]
     )
 
-    def execute(validation: SqlValidationResult, settings: Settings | None):
+    def execute(
+        validation: SqlValidationResult,
+        params: dict[str, Any] | None,
+        settings: Settings | None,
+    ):
         raise OperationalError("connection refused")
 
     result = SqlWorker(chat_model, executor=execute).run("sql_1", "List one order")

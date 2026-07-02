@@ -29,7 +29,12 @@ class FakePlanner:
 
 
 class FakeSqlWorker:
-    def run(self, task_id: str, sub_question: str) -> WorkerResult:
+    def run(
+        self,
+        task_id: str,
+        sub_question: str,
+        params: dict | None = None,
+    ) -> WorkerResult:
         return WorkerResult(
             task_id=task_id,
             target_store=StoreTarget.SQL,
@@ -158,6 +163,50 @@ def test_agent_endpoint_reports_provider_error(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["detail"] == "OpenRouter request failed with HTTP 402"
+
+
+def test_augment_sub_question_passes_upstream_ids_as_params():
+    from backend.agent.graph import _augment_sub_question
+
+    upstream = WorkerResult(
+        task_id="sql_1",
+        target_store=StoreTarget.SQL,
+        status=WorkerStatus.SUCCESS,
+        sub_question="top customers",
+        rows=[
+            {"customer_id": "ALFKI", "net_revenue": "1"},
+            {"customer_id": "SAVEA", "net_revenue": "2"},
+            {"customer_id": "ALFKI", "net_revenue": "3"},
+        ],
+    )
+    task = ExecutionTask(
+        task_id="cypher_1",
+        target_store=StoreTarget.CYPHER,
+        sub_question="delays for these customers",
+        depends_on=["sql_1"],
+    )
+
+    sub_question, params = _augment_sub_question(task, [upstream])
+
+    # distinct id values only, non-identifier columns excluded
+    assert params == {"customer_id": ["ALFKI", "SAVEA"]}
+    assert "$customer_id" in sub_question  # Cypher placeholder hint
+    assert "net_revenue" not in params
+
+
+def test_augment_sub_question_noop_without_dependencies():
+    from backend.agent.graph import _augment_sub_question
+
+    task = ExecutionTask(
+        task_id="sql_1",
+        target_store=StoreTarget.SQL,
+        sub_question="top customers",
+    )
+
+    sub_question, params = _augment_sub_question(task, [])
+
+    assert params == {}
+    assert sub_question == "top customers"
 
 
 def _bundle(plan: ExecutionPlan):

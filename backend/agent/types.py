@@ -81,7 +81,8 @@ class ExecutionTask(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
-    route: QueryRoute
+    # Terminal plans (refuse/clarify) take no executable route, hence Optional.
+    route: QueryRoute | None = None
     tasks: list[ExecutionTask] = Field(default_factory=list)
     rationale: str = ""
     assumptions: list[str] = Field(default_factory=list)
@@ -107,6 +108,33 @@ class EvidenceBundle(BaseModel):
     plan: ExecutionPlan
     worker_results: list[WorkerResult] = Field(default_factory=list)
     sufficiency_decisions: list[SufficiencyDecision] = Field(default_factory=list)
+
+    def evidence_items(self) -> list[dict[str, Any]]:
+        """Compact grounding evidence for LLM prompts.
+
+        Successful workers only, with just the citable material (rows, graph
+        paths, chunks, documents). Repair attempts, validation detail and
+        metrics are dropped so prompts stay light.
+        """
+        items: list[dict[str, Any]] = []
+        for result in self.worker_results:
+            if not result.succeeded:
+                continue
+            item: dict[str, Any] = {
+                "task_id": result.task_id,
+                "store": result.target_store.value,
+                "sub_question": result.sub_question,
+            }
+            if result.rows:
+                item["rows"] = result.rows
+            if result.graph_paths:
+                item["graph_paths"] = result.graph_paths
+            if result.chunks:
+                item["chunks"] = result.chunks
+            if result.documents_used:
+                item["documents_used"] = result.documents_used
+            items.append(item)
+        return items
 
 
 class Citation(BaseModel):

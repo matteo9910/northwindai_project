@@ -24,7 +24,7 @@ def build_answer_trace(bundle: EvidenceBundle) -> AnswerTrace:
         documents_used=_collect_documents(bundle.worker_results),
         metrics=_collect_metrics(bundle.worker_results),
         validation_results=_collect_validations(bundle.worker_results),
-        provenance=_generic_provenance(bundle),
+        provenance=_collect_provenance(bundle),
     )
 
 
@@ -74,41 +74,63 @@ def _collect_validations(results: list[WorkerResult]) -> list[Any]:
     return validations
 
 
-def _generic_provenance(bundle: EvidenceBundle) -> list[ProvenanceEntry]:
+def _collect_provenance(bundle: EvidenceBundle) -> list[ProvenanceEntry]:
+    """Derive provenance from what each query actually referenced.
+
+    The validators already extract the schemas/tables (SQL), labels (Cypher) and
+    collection/filters (vector) touched by the generated query; we surface those
+    instead of static per-store placeholders.
+    """
     entries: list[ProvenanceEntry] = []
-    stores = {result.target_store for result in bundle.worker_results}
-    if "sql" in stores:
-        entries.append(
+    for result in bundle.worker_results:
+        for validation in result.validation_results:
+            entries.extend(_provenance_for(validation))
+    return entries
+
+
+def _provenance_for(validation: Any) -> list[ProvenanceEntry]:
+    dialect = getattr(validation, "dialect", None)
+    if dialect == "sql":
+        default_schema = "/".join(validation.referenced_schemas) or "erp_core/erp_docs"
+        tables = validation.referenced_tables or ["generated_query_tables"]
+        return [
             ProvenanceEntry(
                 source_system="postgresql",
-                source_schema="erp_core/erp_docs",
-                source_table="generated_query_tables",
+                source_schema=_schema_of(table, default_schema),
+                source_table=table,
                 source_columns=[],
                 rule_name="agent_sql_worker",
                 rule_version="v1",
             )
-        )
-    if "cypher" in stores:
-        entries.append(
+            for table in tables
+        ]
+    if dialect == "cypher":
+        labels = validation.referenced_labels or ["generated_graph_traversal"]
+        return [
             ProvenanceEntry(
                 source_system="neo4j",
                 source_schema="erp_domain_graph",
-                source_table="generated_graph_traversal",
-                source_columns=[],
+                source_table=label,
+                source_columns=validation.referenced_relationship_types,
                 rule_name="agent_cypher_worker",
                 rule_version="v1",
             )
-        )
-    if "vector" in stores:
-        entries.append(
+            for label in labels
+        ]
+    if dialect == "vector":
+        return [
             ProvenanceEntry(
                 source_system="qdrant",
-                source_schema="contract_chunks",
+                source_schema=validation.collection_name or "contract_chunks",
                 source_table="vector_payload",
-                source_columns=["text", "supplier_id", "document_id"],
+                source_columns=sorted(validation.filters) or ["text"],
                 rule_name="agent_vector_worker",
                 rule_version="v1",
             )
-        )
-    return entries
+        ]
+    return []
+
+
+def _schema_of(table: str, default_schema: str) -> str:
+    return table.split(".", 1)[0] if "." in table else default_schema
 

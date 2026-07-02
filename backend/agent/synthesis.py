@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -181,4 +182,4 @@ def _basic_citations(
 
 
 def _evidence_json(bundle: EvidenceBundle) -> str:
-    return bundle.model_dump_json(indent=2)
+    return json.dumps(bundle.evidence_items(), indent=2, default=str)
