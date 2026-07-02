@@ -46,24 +46,58 @@ class SemanticCatalog:
                 ],
                 "stores": {
                     "sql": {
-                        "best_for": [
-                            "aggregates over operational facts",
+                        "capabilities": [
+                            "point lookups and aggregations over transactional "
+                            "facts (counts, sums, rankings, time-windowed metrics)",
+                            "direct reads and joins within the erp_core and "
+                            "erp_docs tables",
+                            "answers that are a direct computation over rows",
+                        ],
+                        "not_for": [
+                            "multi-hop relationships, derived events, or temporal "
+                            "causality chains -> use cypher",
+                            "free-text clauses inside contract PDFs -> use vector",
+                        ],
+                        "examples": [
                             "top customers by net revenue",
-                            "direct reads from erp_core/erp_docs tables",
+                            "order counts per quarter",
                         ],
                     },
                     "cypher": {
-                        "best_for": [
-                            "supplier-product-order-shipment traversals",
-                            "event node analysis",
-                            "contract/document metadata traversal",
+                        "capabilities": [
+                            "multi-hop traversals across the ERP domain graph "
+                            "(Supplier-Product-Order-Shipment)",
+                            "analysis of derived Event Nodes (shipment delays, "
+                            "complaints, stock-outs, contract terms)",
+                            "relationship/path questions and contract/document "
+                            "metadata traversal",
+                        ],
+                        "not_for": [
+                            "plain aggregates or point reads with no relationship "
+                            "traversal -> use sql",
+                            "retrieving the text of contract clauses -> use vector",
+                        ],
+                        "examples": [
+                            "which Tokyo Traders orders had delays",
+                            "complaints plausibly related to shipment delays",
                         ],
                     },
                     "vector": {
-                        "best_for": [
-                            "contract PDF clause retrieval after graph scope",
+                        "capabilities": [
+                            "semantic retrieval of contract PDF clause text",
+                        ],
+                        "not_for": [
+                            "structured facts already in postgres or neo4j "
+                            "-> use sql/cypher",
                         ],
                         "requires_filters_from_graph": ["supplier_id", "document_id"],
+                        "usage_note": (
+                            "must run after a cypher task resolves the document "
+                            "scope (supplier_id, document_id)"
+                        ),
+                        "examples": [
+                            "what the contract says about lead-time penalties",
+                        ],
                     },
                 },
                 "business_terms": _business_terms(),
@@ -103,100 +137,354 @@ def _sql_slice() -> dict[str, Any]:
         "allowed_tables": sorted(ALLOWED_TABLES),
         "tables": {
             "erp_core.orders": {
-                "columns": ["order_id", "customer_id", "employee_id", "order_date"],
-                "meaning": "customer orders; join order_details by order_id.",
+                "columns": {
+                    "order_id": "smallint",
+                    "customer_id": "varchar",
+                    "employee_id": "smallint",
+                    "order_date": "date",
+                    "required_date": "date",
+                    "shipped_date": "date",
+                    "ship_via": "smallint",
+                    "freight": "real",
+                    "ship_name": "varchar",
+                    "ship_address": "varchar",
+                    "ship_city": "varchar",
+                    "ship_region": "varchar",
+                    "ship_postal_code": "varchar",
+                    "ship_country": "varchar",
+                },
+                "meaning": (
+                    "customer orders; join order_details by order_id; "
+                    "ship_via -> shippers.shipper_id."
+                ),
             },
             "erp_core.order_details": {
-                "columns": [
-                    "order_id",
-                    "product_id",
-                    "unit_price",
-                    "quantity",
-                    "discount",
-                ],
+                "columns": {
+                    "order_id": "smallint",
+                    "product_id": "smallint",
+                    "unit_price": "real",
+                    "quantity": "smallint",
+                    "discount": "real",
+                },
                 "meaning": (
                     "line-level revenue facts; net revenue = unit_price * "
                     "quantity * (1 - discount)."
                 ),
             },
             "erp_core.customers": {
-                "columns": ["customer_id", "company_name"],
-                "meaning": "customer master data.",
+                "columns": {
+                    "customer_id": "varchar",
+                    "company_name": "varchar",
+                    "contact_name": "varchar",
+                    "contact_title": "varchar",
+                    "address": "varchar",
+                    "city": "varchar",
+                    "region": "varchar",
+                    "postal_code": "varchar",
+                    "country": "varchar",
+                    "phone": "varchar",
+                    "fax": "varchar",
+                },
+                "meaning": "customer master data; customer_id is a 5-letter code.",
             },
             "erp_core.products": {
-                "columns": ["product_id", "product_name", "supplier_id"],
-                "meaning": "product master data; supplier_id links to suppliers.",
+                "columns": {
+                    "product_id": "smallint",
+                    "product_name": "varchar",
+                    "supplier_id": "smallint",
+                    "category_id": "smallint",
+                    "quantity_per_unit": "varchar",
+                    "unit_price": "real",
+                    "units_in_stock": "smallint",
+                    "units_on_order": "smallint",
+                    "reorder_level": "smallint",
+                    "discontinued": "integer",
+                },
+                "meaning": (
+                    "product master data; supplier_id -> suppliers, "
+                    "category_id -> categories."
+                ),
             },
             "erp_core.suppliers": {
-                "columns": ["supplier_id", "company_name"],
+                "columns": {
+                    "supplier_id": "smallint",
+                    "company_name": "varchar",
+                    "contact_name": "varchar",
+                    "contact_title": "varchar",
+                    "address": "varchar",
+                    "city": "varchar",
+                    "region": "varchar",
+                    "postal_code": "varchar",
+                    "country": "varchar",
+                    "phone": "varchar",
+                    "fax": "varchar",
+                    "homepage": "text",
+                },
                 "meaning": "supplier master data.",
             },
+            "erp_core.categories": {
+                "columns": {
+                    "category_id": "smallint",
+                    "category_name": "varchar",
+                    "description": "text",
+                    "picture": "bytea",
+                },
+                "meaning": "product categories.",
+            },
+            "erp_core.employees": {
+                "columns": {
+                    "employee_id": "smallint",
+                    "last_name": "varchar",
+                    "first_name": "varchar",
+                    "title": "varchar",
+                    "title_of_courtesy": "varchar",
+                    "birth_date": "date",
+                    "hire_date": "date",
+                    "address": "varchar",
+                    "city": "varchar",
+                    "region": "varchar",
+                    "postal_code": "varchar",
+                    "country": "varchar",
+                    "home_phone": "varchar",
+                    "extension": "varchar",
+                    "photo": "bytea",
+                    "notes": "text",
+                    "reports_to": "smallint",
+                    "photo_path": "varchar",
+                },
+                "meaning": (
+                    "employee master data; reports_to -> employees.employee_id "
+                    "(self-reference); orders.employee_id -> employees."
+                ),
+            },
+            "erp_core.shippers": {
+                "columns": {
+                    "shipper_id": "smallint",
+                    "company_name": "varchar",
+                    "phone": "varchar",
+                },
+                "meaning": "shipping carriers.",
+            },
             "erp_core.shipments": {
-                "columns": [
-                    "shipment_id",
-                    "order_id",
-                    "expected_delivery_date",
-                    "actual_delivery_date",
-                    "delay_days",
-                    "status",
-                ],
+                "columns": {
+                    "shipment_id": "bigint",
+                    "order_id": "smallint",
+                    "carrier": "text",
+                    "shipper_id": "smallint",
+                    "expected_delivery_date": "date",
+                    "shipped_date": "date",
+                    "actual_delivery_date": "date",
+                    "delay_days": "integer",
+                    "status": "text",
+                    "created_at": "timestamptz",
+                },
                 "meaning": "shipment facts; delay_days > 0 indicates a late shipment.",
             },
+            "erp_core.invoices": {
+                "columns": {
+                    "invoice_id": "bigint",
+                    "invoice_number": "text",
+                    "order_id": "smallint",
+                    "invoice_date": "date",
+                    "due_date": "date",
+                    "payment_date": "date",
+                    "amount": "numeric",
+                    "tax_amount": "numeric",
+                    "total_amount": "numeric",
+                    "status": "text",
+                    "payment_method": "text",
+                    "created_at": "timestamptz",
+                },
+                "meaning": (
+                    "invoices per order; status='overdue' or payment_date>due_date "
+                    "indicates a late payment; order_id -> orders."
+                ),
+            },
+            "erp_core.warehouses": {
+                "columns": {
+                    "warehouse_id": "bigint",
+                    "code": "text",
+                    "name": "text",
+                    "location": "text",
+                    "warehouse_type": "text",
+                    "capacity_units": "integer",
+                    "created_at": "timestamptz",
+                },
+                "meaning": "warehouse master data.",
+            },
+            "erp_core.inventory_movements": {
+                "columns": {
+                    "movement_id": "bigint",
+                    "product_id": "smallint",
+                    "warehouse_id": "bigint",
+                    "movement_type": "text",
+                    "quantity": "integer",
+                    "movement_date": "timestamptz",
+                    "reference": "text",
+                    "created_at": "timestamptz",
+                },
+                "meaning": (
+                    "stock movements; product_id -> products, "
+                    "warehouse_id -> warehouses."
+                ),
+            },
+            "erp_core.price_history": {
+                "columns": {
+                    "price_history_id": "bigint",
+                    "product_id": "smallint",
+                    "old_price": "numeric",
+                    "new_price": "numeric",
+                    "effective_date": "date",
+                    "created_at": "timestamptz",
+                },
+                "meaning": "product price changes over time; product_id -> products.",
+            },
+            "erp_core.region": {
+                "columns": {
+                    "region_id": "smallint",
+                    "region_description": "varchar",
+                },
+                "meaning": "sales regions lookup.",
+            },
+            "erp_core.territories": {
+                "columns": {
+                    "territory_id": "varchar",
+                    "territory_description": "varchar",
+                    "region_id": "smallint",
+                },
+                "meaning": "sales territories; region_id -> region.",
+            },
+            "erp_core.employee_territories": {
+                "columns": {
+                    "employee_id": "smallint",
+                    "territory_id": "varchar",
+                },
+                "meaning": "link table employees <-> territories.",
+            },
+            "erp_core.us_states": {
+                "columns": {
+                    "state_id": "smallint",
+                    "state_name": "varchar",
+                    "state_abbr": "varchar",
+                    "state_region": "varchar",
+                },
+                "meaning": "US states lookup.",
+            },
+            "erp_core.customer_demographics": {
+                "columns": {
+                    "customer_type_id": "varchar",
+                    "customer_desc": "text",
+                },
+                "meaning": "customer demographic segments.",
+            },
+            "erp_core.customer_customer_demo": {
+                "columns": {
+                    "customer_id": "varchar",
+                    "customer_type_id": "varchar",
+                },
+                "meaning": "link table customers <-> customer_demographics.",
+            },
             "erp_docs.customer_communications": {
-                "columns": [
-                    "communication_id",
-                    "customer_id",
-                    "order_id",
-                    "product_id",
-                    "contact_reason",
-                    "subject",
-                    "body",
-                    "sentiment",
-                    "occurred_at",
-                ],
+                "columns": {
+                    "communication_id": "bigint",
+                    "customer_id": "varchar",
+                    "order_id": "smallint",
+                    "product_id": "smallint",
+                    "channel": "text",
+                    "contact_reason": "text",
+                    "subject": "text",
+                    "body": "text",
+                    "sentiment": "text",
+                    "occurred_at": "timestamptz",
+                    "created_at": "timestamptz",
+                },
                 "meaning": (
                     "customer communications; subject is the structured issue "
-                    "classification."
+                    "classification; contact_reason='complaint' marks complaints."
                 ),
             },
             "erp_docs.supplier_contracts": {
-                "columns": [
-                    "contract_id",
-                    "supplier_id",
-                    "contract_number",
-                    "lead_time_days",
-                    "minimum_order_value",
-                    "start_date",
-                    "end_date",
-                    "status",
-                ],
-                "meaning": "structured supplier contract facts.",
+                "columns": {
+                    "contract_id": "bigint",
+                    "supplier_id": "smallint",
+                    "contract_number": "text",
+                    "lead_time_days": "integer",
+                    "start_date": "date",
+                    "end_date": "date",
+                    "minimum_order_value": "numeric",
+                    "status": "text",
+                    "created_at": "timestamptz",
+                },
+                "meaning": (
+                    "structured supplier contract facts; supplier_id -> suppliers."
+                ),
             },
             "erp_docs.documents": {
-                "columns": [
-                    "document_id",
-                    "doc_type",
-                    "title",
-                    "supplier_id",
-                    "file_path",
-                    "status",
-                    "metadata",
-                ],
+                "columns": {
+                    "document_id": "bigint",
+                    "doc_type": "text",
+                    "title": "text",
+                    "order_id": "smallint",
+                    "supplier_id": "smallint",
+                    "customer_id": "varchar",
+                    "file_path": "text",
+                    "status": "text",
+                    "metadata": "jsonb",
+                    "created_at": "timestamptz",
+                },
                 "meaning": (
                     "document references; full text and embeddings live outside "
-                    "PostgreSQL/Neo4j."
+                    "PostgreSQL/Neo4j (in Qdrant)."
                 ),
+            },
+            "erp_docs.document_entities": {
+                "columns": {
+                    "document_entity_id": "bigint",
+                    "document_id": "bigint",
+                    "entity_type": "text",
+                    "entity_ref": "text",
+                    "mention": "text",
+                    "confidence": "numeric",
+                    "created_at": "timestamptz",
+                },
+                "meaning": (
+                    "entities extracted from documents; document_id -> documents."
+                ),
+            },
+            "erp_docs.product_specifications": {
+                "columns": {
+                    "spec_id": "bigint",
+                    "product_id": "smallint",
+                    "title": "text",
+                    "spec_text": "text",
+                    "attributes": "jsonb",
+                    "created_at": "timestamptz",
+                },
+                "meaning": "product specification documents; product_id -> products.",
             },
         },
         "join_paths": [
             "orders.order_id -> order_details.order_id",
             "order_details.product_id -> products.product_id",
             "products.supplier_id -> suppliers.supplier_id",
+            "products.category_id -> categories.category_id",
+            "orders.customer_id -> customers.customer_id",
+            "orders.employee_id -> employees.employee_id",
+            "orders.ship_via -> shippers.shipper_id",
             "orders.order_id -> shipments.order_id",
+            "shipments.shipper_id -> shippers.shipper_id",
+            "orders.order_id -> invoices.order_id",
+            "inventory_movements.product_id -> products.product_id",
+            "inventory_movements.warehouse_id -> warehouses.warehouse_id",
+            "price_history.product_id -> products.product_id",
             "customer_communications.order_id -> orders.order_id",
             "customer_communications.product_id -> products.product_id",
+            "customer_communications.customer_id -> customers.customer_id",
             "supplier_contracts.supplier_id -> suppliers.supplier_id",
             "documents.supplier_id -> suppliers.supplier_id",
+            "documents.order_id -> orders.order_id",
+            "document_entities.document_id -> documents.document_id",
+            "product_specifications.product_id -> products.product_id",
         ],
         "guardrails": [
             "Generate one read-only SELECT only.",
@@ -276,7 +564,10 @@ def _cypher_slice() -> dict[str, Any]:
                 "product_id",
                 "issue_type",
                 "subject",
+                "body",
                 "sentiment",
+                "channel",
+                "contact_reason",
                 "occurred_at",
             ],
             "DeliveryDelayComplaintEvent": [
@@ -285,6 +576,32 @@ def _cypher_slice() -> dict[str, Any]:
                 "order_id",
                 "product_id",
                 "issue_type",
+                "subject",
+                "body",
+                "sentiment",
+                "occurred_at",
+            ],
+            "PackagingQualityComplaintEvent": [
+                "communication_id",
+                "customer_id",
+                "order_id",
+                "product_id",
+                "issue_type",
+                "subject",
+                "body",
+                "sentiment",
+                "occurred_at",
+            ],
+            "ProductQualityComplaintEvent": [
+                "communication_id",
+                "customer_id",
+                "order_id",
+                "product_id",
+                "issue_type",
+                "subject",
+                "body",
+                "sentiment",
+                "occurred_at",
             ],
             "Contract": [
                 "contract_id",
@@ -299,14 +616,37 @@ def _cypher_slice() -> dict[str, Any]:
                 "contract_id",
                 "lead_time_days",
                 "minimum_order_value",
+                "start_date",
+                "status",
             ],
             "Document": [
                 "document_id",
                 "supplier_id",
+                "doc_type",
+                "title",
                 "contract_number",
                 "file_path",
-                "doc_type",
+                "status",
+                "lead_time_days",
+                "vector_chunk_ids",
             ],
+        },
+        "provenance_properties": {
+            "properties": [
+                "source_system",
+                "source_schema",
+                "source_table",
+                "source_pk",
+                "projection_version",
+                "rule_name",
+                "rule_version",
+                "derived_from",
+            ],
+            "note": (
+                "Every node and relationship also carries this provenance set "
+                "(ADR 0005); 'derived_from' is present only on derived/event "
+                "nodes. These are for traceability, not business filtering."
+            ),
         },
         "property_notes": {
             "ContractTermEvent": (
@@ -316,6 +656,13 @@ def _cypher_slice() -> dict[str, Any]:
                 "minimum_order_value for minimum_order_value)."
             ),
             "Customer": "Customer.customer_id is the 5-letter code (e.g. 'ALFKI').",
+            "complaint_events": (
+                "CustomerComplaintEvent is the generic complaint; "
+                "Delivery/Packaging/ProductQuality variants are subject-classified "
+                "issue events linked via CLASSIFIED_AS. issue_type is the "
+                "normalized class (delivery_delay, packaging_quality, "
+                "product_quality)."
+            ),
         },
         "traversal_paths": [
             "(s:Supplier)-[:SUPPLIES]->(p:Product)",
